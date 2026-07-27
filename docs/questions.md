@@ -62,17 +62,57 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 
 | ID | Question | Status | Priority | Owner | Blocks |
 |---|---|---|---|---|---|
-| [OQ-6](#oq-6) | Bespoke expression grammar or restricted CEL? | OPEN | BLOCKING | — | mapping-dsl §4/§5, **P1** |
+| [OQ-23](#oq-23) | Standalone, RS Adapter + Processor, or hybrid? | Role 1 ANSWERED → [DD-026](design-decisions.md#dd-026); Role 2 READY | MEDIUM | DG | scada-web structure |
+| [OQ-12](#oq-12) | Shared union output topic, or one per client? | DECIDED | BLOCKING | DG | scada-selector design, step 1 |
 | [OQ-11](#oq-11) | What must the PoC demonstrate to count as a success? | OPEN | BLOCKING | DG | Judging the outcome |
-| [OQ-4](#oq-4) | Is cross-topic join in the PoC? | READY | HIGH | — | Engine state design, P1 |
-| [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | READY | MEDIUM | DG | Web surface design, P3 |
-| [OQ-5](#oq-5) | Which HTTP stack? | OPEN | MEDIUM | — | P3 |
+| [OQ-15](#oq-15) | What language and DDS API for scada-selector? | SUPERSEDED | — | — | → [OQ-23](#oq-23) |
+| [OQ-6](#oq-6) | Bespoke expression grammar or restricted CEL? | OPEN | HIGH | — | mapping-dsl §4/§5, P1 |
+| [OQ-19](#oq-19) | Union comparison and promotion rules? | OPEN | HIGH | — | OQ-6 spike, OQ-14 |
+| [OQ-24](#oq-24) | `ValueRequest`: deltas or full desired state? | READY | HIGH | — | DD-023, SR-003, OQ-17 |
+| [OQ-25](#oq-25) | Per-client read semantics on a shared reader — keep WIS polling at all? | READY | HIGH | DG | FR-REST-003, read path |
+| [OQ-14](#oq-14) | Where does alarm limit evaluation and state live? | DECIDED | HIGH | DG | Browser + filter scope |
+| [OQ-13](#oq-13) | Is name-based tag lookup required, or is `uid` enough? | OPEN | MEDIUM | — | `ValueRequest` handling |
+| [OQ-16](#oq-16) | What stack for the browser interface? | OPEN | MEDIUM | — | Browser work, step 5 |
+| [OQ-17](#oq-17) | Should `ValueRequest` be keyed on `uid`? | OPEN | MEDIUM | — | IDL revision window |
+| [OQ-20](#oq-20) | Single source of truth for types across components? | ANSWERED | — | — | → [DD-026](design-decisions.md#dd-026) |
+| [OQ-21](#oq-21) | Are trends and a historian in scope? | OPEN | MEDIUM | DG | Browser scope |
+| [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | READY | MEDIUM | DG | Web surface design |
 | [OQ-1](#oq-1) | RTI licensing/support position on reimplementing WIS | OPEN | MEDIUM | DG | Productization, not the PoC |
+| [OQ-26](#oq-26) | One DDS domain across the RT boundary, or two? | OPEN | MEDIUM | DG | Selector deployment, OQ-22 |
+| [OQ-18](#oq-18) | Should `ValueRequest` carry a `LIFESPAN`? | OPEN | LOW | — | Nothing; cheap later |
+| [OQ-22](#oq-22) | Enforce Purdue zones with DDS Security, or logically only? | OPEN — now structurally reachable via [DD-028](design-decisions.md#dd-028) | LOW | — | Deployment claims |
+| [OQ-4](#oq-4) | Is cross-topic join in the PoC? | ANSWERED | — | — | → DD-021 |
+| [OQ-5](#oq-5) | Which HTTP stack? | READY | LOW | — | P3 |
 | [OQ-2](#oq-2) | Must we mechanically ingest Routing Service assignment configs? | DEFERRED | LOW | — | FR-XF-053 scope |
 | [OQ-7](#oq-7) | How to re-authenticate a long-lived WebSocket? | DEFERRED | LOW | — | Post-PoC |
 | [OQ-8](#oq-8) | Multi-instance / horizontal scaling story? | DEFERRED | LOW | — | Post-PoC |
 | [OQ-9](#oq-9) | Is the embeddable library a v1 requirement or v2? | ANSWERED | — | — | → DD-018 |
 | [OQ-10](#oq-10) | What is the reference hardware for §7.1 targets? | MOOT | — | — | → DD-018 |
+
+**Scope note (2026-07-27, second revision):** the deliverable is four
+components — scada-sim, scada-selector, scada-web, browser
+([system-architecture.md](system-architecture.md),
+[DD-020](design-decisions.md#dd-020)). This **answered OQ-4** by relocating the
+join, **downgraded OQ-5** to near-irrelevant, and raised OQ-12…15.
+
+**Scope note (2026-07-27, third revision):** `scada-filter` renamed
+**`scada-selector`**, and it must use **compiled IDL types** for high-rate topics.
+That ruled out a Routing Service Processor and settled Role 1 of OQ-23 as
+standalone ([DD-026](design-decisions.md#dd-026)); **Routing Service is not used
+anywhere.** It also **answered OQ-20**. Separately,
+[DD-024](design-decisions.md#dd-024) moved metadata correlation from the selector
+to scada-web, so the selector is now pure selection — any text below describing it
+as enriching or caching metadata is superseded.
+
+**Scope note (2026-07-27, fourth revision):** scada-selector is now the **sole
+conduit between the hard-real-time field side and the soft-real-time presentation
+side**, and `MetaData` is forwarded *through* it rather than read directly by
+scada-web ([DD-028](design-decisions.md#dd-028)). This amends DD-024's transport
+path only — metadata *ownership* stays with scada-web. It raised **OQ-26** and made
+**OQ-22** structurally reachable: its recommended option (b), a domain per level
+with a deliberate bridge, was impossible while scada-web held a field-side
+endpoint. Any text below implying scada-web subscribes to `PLC::MetaData` directly
+is superseded.
 
 ---
 
@@ -178,13 +218,26 @@ cheaper than a translator.
 ### OQ-4
 **Is joining across topics (FR-XF-022) in the PoC?**
 
-- **Status:** READY · **Priority:** HIGH · **Owner:** —
-- **Blocks:** Transformation engine state design; mapping-dsl join syntax; **P1**
-- **Raised:** 2026-07-27
+- **Status:** ANSWERED — **no, relocated** · **Resolved:** 2026-07-27
+- **Resolution:** [DD-021](design-decisions.md#dd-021)
 
-**Now blocks P1, not P3**, because the engine moved to the front of the schedule
-(TRD §12). It needs answering early — but the recommendation below is unchanged
-and cheap to adopt, so this should not hold anything up.
+**Answered, and the answer inverted the reasoning below.** The real IDL showed
+that the natural HMI view — `{tag, value, units, limits, alarm_state}` — spans
+`IdValue` and `MetaData` correlated on `uid`, which is exactly the
+`latest_value` join this entry recommended cutting. **The one feature planned for
+deferral turned out to be required by the primary use case.**
+
+Rather than reinstate it in the engine, scada-selector performs the enrichment: it
+already holds per-uid state for the enabled set, and `MetaData` is
+`TRANSIENT_LOCAL` so it reliably has every description. Join stays out of the v1
+mapping engine and the view still works.
+
+Worth recording as a lesson: the deferral recommendation below was reasonable on
+the information available and wrong on the information that arrived. It was made
+before any concrete data model existed — which is an argument for looking at real
+types earlier, not for deferring less.
+
+The analysis below is preserved as written.
 
 **Context.** Join is the single largest driver of state in the transformation
 engine. Without it, a mapping is a pure function of one input sample and the
@@ -205,11 +258,17 @@ this risk cheaply is worth more than the feature.
 ### OQ-5
 **Which HTTP stack?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** —
-- **Blocks:** P3 (was P1)
-- **Raised:** 2026-07-27 · **Reframed:** 2026-07-27 (PoC scoping)
+- **Status:** READY · **Priority:** LOW · **Owner:** —
+- **Blocks:** P3
+- **Raised:** 2026-07-27 · **Reframed:** 2026-07-27 (PoC scoping, then DD-022)
 
-**Substantially reframed — this got easier in two ways and harder in none.**
+**Now near-irrelevant.** [DD-022](design-decisions.md#dd-022) closed the
+threading question on the merits — the client population is operator consoles,
+tens to low hundreds, so connection scaling is not a differentiator between
+stacks. **Take option A (Boost.Beast)** unless the spike hits an obstacle. This
+no longer warrants comparative evaluation.
+
+**Earlier reframing, preserved:**
 
 1. **NFR-MAINT-002 is withdrawn** with the embeddable library (TRD §8.1). The
    rule against external dependencies in public headers was the main argument
@@ -401,12 +460,641 @@ it should be a choice.
 
 ---
 
+### OQ-12
+**Does scada-selector publish one shared output topic carrying the union of all
+clients' requested uids, or one topic/partition per client?**
+
+- **Status:** DECIDED · **Priority:** BLOCKING · **Owner:** DG
+- **Blocks:** scada-selector design; `SelectedValue` definition (build step 1)
+- **Raised:** 2026-07-27 ([system-architecture.md](system-architecture.md) §5)
+- **Decision:** 2026-07-27 — **Option A (one shared output topic).** Initial POC
+  targets a single client, so the question is moot for now. scada-web will implement
+  per-client demux in the future if multiple clients are needed.
+
+**Context.** [DD-020](design-decisions.md#dd-020) moves selection into
+scada-selector, but does not say what granularity it publishes at. This is the
+first thing that has to be decided, because everything downstream depends on it.
+
+| | Option | Consequence |
+|---|---|---|
+| A | **One shared topic**, union of all requested uids | scada-web holds one reader. It must demultiplex per client (SR-004) — a cheap set-membership test, but real code, and the *only* thing preventing client A from seeing client B's tags. |
+| B | **One topic or partition per client/session** | No demux in scada-web. But entity count now scales with client count inside scada-selector — the problem is relocated, not solved, which defeats the point of DD-020. |
+
+**Recommendation: A.** It is the only option consistent with DD-020's rationale.
+B recreates the per-client entity explosion one component to the left.
+
+**But note what A implies, because it is a security property, not just a
+performance one:** the output topic carries every tag any client has asked for, so
+per-client scoping exists *only* because scada-web enforces it in software. A demux
+bug leaks other clients' tags. If tag-level access control is ever required
+(NFR-SEC-003), that enforcement point is the one that matters, and it is in the
+web tier rather than in DDS. Worth deciding deliberately rather than discovering.
+
+**Sub-question:** under A, should scada-selector use DDS partitions to give coarse
+grouping (e.g. per plant area) even if not per client? That would reduce
+scada-web's demux volume without per-client entities.
+
+---
+
+### OQ-13
+**Is name-based tag lookup required, or is `uid` sufficient?**
+
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** `ValueRequest` handling in scada-selector; browser tag-selection UX
+- **Raised:** 2026-07-27
+- **Decision:** 2026-07-27 — `uid`-only for POC. Name-based lookup deferred to
+  future implementation roadmap.
+
+**Context.** `ValueRequest` carries both `uid` and `name`, but `ADD`/`DELETE` only
+need `uid`. So `name` is either (a) redundant, kept for readable logging, or (b) an
+alternative lookup key for a client that knows a tag's name but not its numeric id.
+
+If (b), scada-selector needs a name→uid index built from `MetaData.longName`, and
+must define behavior for an unknown or ambiguous name — `MetaData.longName` is not
+declared unique, so ambiguity is possible.
+
+This also bears on how the browser lets an operator pick tags. Selecting by
+numeric uid is not a usable HMI affordance; selecting by name is. So *something*
+must resolve names — the question is which component does it. A third option is
+that scada-web exposes a tag catalogue built from `MetaData` and the browser
+resolves names before ever sending a `uid`, which keeps scada-selector simple.
+
+**Leaning:** catalogue in scada-web, `uid`-only in `ValueRequest`, `name` kept for
+logging. Confirm before building either side.
+
+---
+
+### OQ-14
+**Where does alarm limit evaluation and alarm state live?**
+
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** scada-selector scope; browser scope; mapping engine `<compute>` usage
+- **Raised:** 2026-07-27 ([system-architecture.md](system-architecture.md) §7)
+- **Decision:** 2026-07-27 — Out of scope for POC. Alarm/limit evaluation is future
+  roadmap for scada-selector.
+
+**Context.** `Limits_t` carries six thresholds (red/yellow/green high and low) plus
+an `active` flag. Something must compare values against them. Three candidate
+homes, none obviously right:
+
+| | Where | For | Against |
+|---|---|---|---|
+| A | scada-selector | Evaluated once for all clients; consistent across displays | Puts supervisory logic in a component whose job is selection |
+| B | scada-web mapping engine, as `<compute>` | Declarative; the TRD's worked example does exactly this | Per-client re-evaluation; expression language must handle union-typed comparisons |
+| C | Browser | Simple; no server state | Every client re-implements it; inconsistent between clients; no server-side alarm history |
+
+**The harder half of the question is state, not evaluation.** ISA-18.2 wants
+Normal → Unacknowledged → Acknowledged → RTN with deadbands and priorities — a
+state machine with memory, and acknowledgement is an *operator action* that must
+be shared across clients. If operator A acknowledges an alarm, operator B must see
+it acknowledged. That is server-side shared state, which rules out C for anything
+beyond a single-operator demo, and means whichever component owns it needs a
+write path from the browser.
+
+**Note:** limit comparison over `Value_t` means comparing union-typed values,
+which is a non-trivial case for the expression language. Promoted to its own
+entry — see [OQ-19](#oq-19), which must be answered before this one can be
+implemented whichever component wins.
+
+**Recommendation:** for the PoC, evaluate limits in scada-selector (option A) and
+emit a simple severity level on `SelectedValue`; treat the full ISA-18.2 state
+machine as explicitly out of scope and say so, rather than implementing a boolean
+and calling it alarms. Confirm — this expands `SelectedValue` and scada-selector's
+remit.
+
+---
+
+### OQ-15
+**What language and DDS API for scada-selector?**
+
+- **Status:** SUPERSEDED by [OQ-23](#oq-23) · **Superseded:** 2026-07-27
+- **Raised:** 2026-07-27
+
+**Superseded, and the answer is one this entry did not consider.** OQ-23's
+recommendation is that scada-selector be a **Routing Service Processor** — none of
+the three options below. Its job is multi-input correlation with state, which is
+what Processors exist for, and RS then supplies config, lifecycle, remote admin,
+and monitoring. Option C below (Routing Service) was rejected for the wrong reason:
+I evaluated *Routing Service with a transformation plugin*, which genuinely is an
+awkward fit, and did not consider a **Processor**, which is multi-input and
+supports `update()`. The "don't pick C without a spike" warning was right about
+transformations and wrong about processors.
+
+The `SelectedValue` drift concern ([OQ-20](#oq-20)) survives and gets easier: a
+C++ Processor and a C++ scada-web can share the same type-loading path.
+
+**Original analysis, preserved:**
+
+**Context.** The sim is Python; scada-web is modern C++. scada-selector could be
+either, and the choice is not obvious.
+
+| | Option | For | Against |
+|---|---|---|---|
+| A | Modern C++ | Matches scada-web; shares type-handling and DynamicData code; production-plausible | Slower to write; the component is mostly bookkeeping, which C++ is not fastest at |
+| B | Python | Fastest to a working filter; consistent with the sim; the logic is a dict and a set | Second runtime to deploy; per-sample Python on the data path |
+| C | Routing Service + a transformation plugin | Least new code; RTI already does topic-to-topic republishing | Selection driven by a live command topic is not what RS transformations are built for; awkward fit; drags in [OQ-1](#oq-1) |
+
+**Leaning B for the PoC, A if it outlives the PoC.** scada-selector's logic is a set
+of enabled uids, a dict of cached metadata, and a republish loop — that is a
+short Python program, and it is on the critical path as the earliest independently
+demonstrable component (system-architecture §9). At SCADA scan rates (the sim
+publishes at 1 Hz) Python is nowhere near a bottleneck.
+
+**The argument against B worth weighing:** if scada-selector is Python, the
+`EnabledValue` type is defined twice — once in the sim's builder style and once in
+scada-web's C++ — and they can drift. Promoted to its own entry, since the fix is
+a system-wide choice rather than a note on this one: see [OQ-20](#oq-20).
+
+**Do not pick C without a spike.** Bending Routing Service to do command-driven
+dynamic selection is likely to cost more than the ~200 lines it replaces.
+
+---
+
+### OQ-16
+**What stack for the browser interface?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** —
+- **Blocks:** Browser work (build step 5)
+- **Raised:** 2026-07-27
+
+**Context.** The browser interface is one of the four named deliverables and its
+stack is currently just "TBD" in
+[system-architecture.md](system-architecture.md) §1. Nothing tracked it, which is
+how a deliverable quietly becomes an afterthought.
+
+ISA-101 requirements shape this more than usual: high-performance HMI means a
+grayscale/muted mimic with saturated color reserved for abnormal states, state
+shown by shape *and* fill rather than color alone (accessibility), and trends plus
+an alarm banner as first-class elements rather than bolt-ons. A mimic diagram is
+essentially interactive vector graphics bound to live tag values.
+
+**Candidates.** Plain SVG + vanilla TypeScript (no framework, direct WebSocket
+binding — mimics are SVG anyway); React or similar with an SVG mimic; or a
+canvas-based renderer if tag counts get high enough that per-element DOM updates
+hurt.
+
+**Leaning:** SVG plus a thin TypeScript layer, no framework. A mimic is a static
+drawing with a few hundred bound attributes; frameworks solve a problem this does
+not have, and direct binding keeps the update path obvious. Revisit if the alarm
+banner and trend components turn out to want real component structure.
+
+**Sub-question:** does the PoC need a *drawn* mimic at all, or is a tag table plus
+one trend enough to demonstrate the mapping thesis? A hand-drawn mimic is
+substantial art effort that proves nothing about the gateway. Recommend a table
+plus trend for the PoC and treat the mimic as separate.
+
+---
+
+### OQ-17
+**Should `ValueRequest` be keyed on `uid`?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** —
+- **Blocks:** IDL revision window — cheap now, disruptive later
+- **Raised:** 2026-07-27 (latent in [DD-023](design-decisions.md#dd-023))
+
+**Context.** `ValueRequest` currently has no `@key`, making it a single-instance
+command stream, which is why DD-023 requires `KEEP_ALL`. Adding `@key uid` would
+give each tag its own instance and change the QoS calculus.
+
+**Why it is not obviously right.** With `@key uid` and `KEEP_LAST depth=1`, an
+`ADD(5)` followed quickly by `DELETE(5)` would have the DELETE replace the ADD on
+the same instance. That happens to produce the correct end state — but only by
+luck, because the two commands are not actually idempotent replacements for one
+another in general, and the `METADATA` command is not a state at all. A keyed
+topic models "the desired state of uid 5", whereas the current type models "a
+command about uid 5". Those are different designs and the enum mixes them:
+`ADD`/`DELETE` are state-like, `METADATA` is a request.
+
+**Options.** (a) Leave unkeyed, use `KEEP_ALL` per DD-023 — no IDL change, works.
+(b) Key on `uid` and split `METADATA` onto its own request topic, so the keyed
+topic is genuinely "desired enable state". Cleaner model, touches the IDL and the
+sim. (c) Key on `uid` and keep the enum as-is — tempting and probably subtly wrong.
+
+**Recommendation:** (a) for the PoC. Consider (b) if the IDL opens for other
+reasons; do not adopt (c). Whichever way, note that a keyed "desired state" topic
+with `TRANSIENT_LOCAL` durability would let a restarted scada-selector recover its
+enable set from the middleware instead of needing reconciliation
+(system-architecture SR-003) — which is a genuine architectural argument for (b)
+worth weighing against the churn.
+
+---
+
+### OQ-18
+**Should `ValueRequest` carry a `LIFESPAN` QoS?**
+
+- **Status:** OPEN · **Priority:** LOW · **Owner:** —
+- **Blocks:** Nothing — cheap to add later
+- **Raised:** 2026-07-27 (noted undecided in [DD-023](design-decisions.md#dd-023))
+
+`KEEP_ALL` means commands queue rather than being dropped. If scada-selector is down
+or slow, commands accumulate and then all execute at once when it recovers —
+including requests from clients that have since disconnected. A `LIFESPAN` would
+expire stale commands.
+
+Interacts with interest refcounting (SR-001…004): scada-web's refcount is the real
+source of truth for what should be enabled, so stale queued commands are not just
+wasteful but can disagree with it. Arguably reconciliation after reconnect
+(SR-003) is the better fix and `LIFESPAN` is redundant. Recorded so it is a
+decision rather than an omission.
+
+---
+
+### OQ-19
+**How are union-typed values compared, and what are the promotion rules?**
+
+- **Status:** OPEN · **Priority:** HIGH · **Owner:** —
+- **Blocks:** [OQ-6](#oq-6) expression-language spike; [OQ-14](#oq-14) alarm evaluation
+- **Raised:** 2026-07-27 (was a note inside OQ-14)
+
+**Context.** Every value in the data model is a `Value_t` union over string,
+int32, int64, float32 (declared `double`), and float64. Alarm limits are *also*
+`Value_t`. So the core alarm operation is comparing one union against another, and
+the two may carry different discriminators.
+
+**Questions that need answers, not defaults:**
+
+1. What happens comparing `KIND_INT64` against `KIND_FLOAT64`? Promote to double
+   and accept precision loss above 2^53, or refuse?
+2. What does comparing `KIND_STRING` against a numeric limit mean? Presumably an
+   error — but the engine must define which error and what
+   `on_error` does with it.
+3. Are `KIND_FLOAT32` and `KIND_FLOAT64` interchangeable? On the wire they are
+   both `double` (see FR-XF-005), so a strict discriminator check would reject a
+   comparison that is actually well-defined.
+4. Does the expression language expose the discriminator itself, so a mapping can
+   branch on `ValueKind_t`? Almost certainly needed, and it means the type checker
+   must handle a value whose static type is a union.
+
+**Why HIGH.** This lands on both the OQ-6 language choice and OQ-14 alarm
+placement, and it is exactly the kind of semantics that gets decided implicitly by
+whatever the first implementation happens to do. Answer it in the P0 spike. It is
+also the concrete test of whether a restricted CEL profile can bridge to XTypes
+cleanly — unions are the hard part of that bridge, and this system is made of them.
+
+---
+
+### OQ-20
+**What is the single source of truth for the `SelectedValue` type across
+components?**
+
+- **Status:** **ANSWERED** · **Resolved:** 2026-07-27
+- **Resolution:** [DD-026](design-decisions.md#dd-026), with [DD-024](design-decisions.md#dd-024)
+- **Raised:** 2026-07-27 (was a note inside OQ-15)
+
+**Answered by two decisions that between them removed the problem rather than
+solving it.**
+
+1. **DD-024 withdrew the enriched type.** `SelectedValue` reuses `IdValue` on a
+   different topic name, so there is no second type definition to keep in sync.
+2. **DD-026 fixed the derivation path.** One IDL, two *automated* derivations —
+   `rtiddsgen` for the selector's compiled C++ types, `rtiddsgen -convertToXml`
+   for the XML types library scada-web loads at runtime (DD-007). Neither is
+   hand-written, so neither can drift.
+
+The residual item is a build-system concern, not a design question: **both
+derivations must be wired into the build** so a change to `PlcValue.idl`
+regenerates both. If they are run by hand, drift returns through the back door.
+
+Worth noting the sim is still the exception — [sim/plc_types.py](../sim/plc_types.py)
+hand-transcribes the IDL into DynamicType builder calls. That is deliberate and
+documented in its docstring, and it is now the *only* hand-transcription left. If
+the Connext Python API can load XML types, the sim could consume the same
+generated XML and the duplication would be gone entirely.
+
+**Original analysis, preserved:**
+
+**Context.** `SelectedValue` is written by scada-selector and read by scada-web. If
+those are different languages, the type gets defined twice and can drift — and a
+drifted type fails at *runtime* as a type-mismatch on endpoint matching, not at
+build time.
+
+The sim already shows the shape of this problem: [sim/PlcValue.idl](../sim/PlcValue.idl)
+is the nominal source of truth, but [sim/plc_types.py](../sim/plc_types.py)
+hand-transcribes it into DynamicType builder calls, with a docstring noting the
+transcription is deliberate and field-for-field. That is careful and correct today,
+and it is exactly the kind of duplication that silently rots.
+
+**Options.** (a) IDL as source of truth, `rtiddsgen -convertToXml`, both components
+load the XML types library at runtime — consistent with DD-007 and FR-DDS-007, and
+scada-web needs XML type loading anyway. (b) IDL plus generated code per language.
+(c) Keep hand-transcribing and add a test that asserts the two definitions agree.
+
+**Leaning (a).** It removes the duplication rather than policing it, and scada-web
+already requires runtime XML type loading, so the machinery is not extra work.
+Note this would also let the sim drop its hand-built builders — worth checking
+whether the Connext Python API can load XML types as readily.
+
+---
+
+### OQ-21
+**Are trends and a historian in scope?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Browser scope; possibly a fifth component
+- **Raised:** 2026-07-27
+
+**Context.** I marked historian and trends "out of scope" in
+[system-architecture.md](system-architecture.md) §7 on my own authority, which
+was a scope call I should not have made silently — flagging it rather than leaving
+it buried in a table.
+
+The case for including *something*: the [scada-sme](../.github/agents/scada-sme.agent.md)
+guidance treats trending as a first-class HMI element, not an add-on, and an
+operator display showing only instantaneous values is not recognizably a SCADA
+HMI. A trend also exercises the gateway differently from a live value — it implies
+either client-side buffering of the WebSocket stream or a server-side query API,
+and the latter would be a genuinely new capability rather than a UI feature.
+
+**Options.** (a) Out of scope entirely — live values only. (b) Client-side trend
+buffer in the browser: keeps the last N minutes in memory, no server changes, no
+persistence. (c) Real historian as a fifth component, with a query path through
+scada-web.
+
+**Recommendation: (b).** It gives a recognizable HMI and costs nothing on the
+server side, since the browser is already receiving the stream. (c) is a separate
+project — Level 3 in Purdue terms — and would pull scada-web into query-API
+territory that has nothing to do with the mapping thesis.
+
+---
+
+### OQ-22
+**Does the PoC enforce Purdue zone separation with DDS Security, or only
+logically?**
+
+- **Status:** OPEN · **Priority:** LOW · **Owner:** —
+- **Blocks:** Nothing in the PoC; matters for any real deployment claim
+- **Raised:** 2026-07-27
+
+**Context.** The [scada-sme](../.github/agents/scada-sme.agent.md) guidance is
+explicit that IEC 62443 zones and conduits should be *architecturally* real, not
+just drawn on a diagram — default-deny between zones, explicit conduits. Today the
+four components would share one DDS domain with no authentication between them, so
+Level 1 and Level 2 separation exists only as a module boundary.
+
+For the PoC this is defensible: the separation is real in code structure, which is
+what the architecture is meant to demonstrate. But it should be **stated** rather
+than left to be inferred, because "we modeled Purdue levels" and "we enforced
+Purdue levels" are different claims and only the first is true.
+
+**Options.** (a) Logical separation only, documented as such. (b) Separate DDS
+domains per level with a deliberate bridge as the conduit. (c) Connext Security
+Plugins with per-level permissions.
+
+**Recommendation: (a) for the PoC, documented explicitly** — and note that (b) is
+the cheap intermediate step if separation ever needs to be more than a claim,
+since domain separation costs almost nothing and makes the conduit an actual
+component rather than an assumption. (c) is already [Post-PoC] per NFR-TEST-007.
+
+> **Update (2026-07-27, [DD-028](design-decisions.md#dd-028)).** Option (b) is now
+> *reachable*, which it was not when this was written. The blocker was never the
+> domain IDs — it was that scada-web read `PLC::MetaData` directly and therefore
+> held a field-side endpoint, so no bridge could be the only conduit. Metadata now
+> passes through scada-selector, which makes the conduit "an actual component
+> rather than an assumption" in the exact sense this entry asked for. What remains
+> open here is narrower: whether the PoC *runs* two domains
+> ([OQ-26](#oq-26)) and whether Security Plugins are involved (c). The
+> zone-boundary claim itself is no longer only logical — it is enforced by
+> topology.
+
+---
+
+### OQ-23
+**Standalone service, Routing Service Adapter + Processor, or a hybrid?**
+
+- **Status:** **ANSWERED for Role 1** (→ [DD-026](design-decisions.md#dd-026)); READY for Role 2 · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** scada-web structure only; supersedes [OQ-15](#oq-15)
+- **Raised:** 2026-07-27 · **Partly resolved:** 2026-07-27
+- **Full analysis:** [architecture-comparison.md](architecture-comparison.md)
+
+> **Role 1 is settled, and not as recommended below.** The requirement that
+> scada-selector use **compiled IDL types** for high-rate topics rules out a
+> Routing Service Processor outright: the built-in DDS adapter is
+> DynamicData-based, with no documented way to bind generated types to a
+> Processor's `TypedInput<T>`. **scada-selector is standalone**
+> ([DD-026](design-decisions.md#dd-026)).
+>
+> **Role 2 is unchanged and still recommended: scada-web standalone.** The
+> analysis below for *why not an Adapter* (§3.1 of the comparison — REST reads are
+> DataReader semantics) is untouched and is the part that still needs sign-off.
+>
+> Net: Routing Service is not used anywhere. Its free admin and monitoring were
+> the strongest reason to involve it, and that is now a cost both components carry.
+
+**Context.** Prompted by [RTI_REST_Adapter_Proposal.md](RTI_REST_Adapter_Proposal.md),
+which argues for hosting a WIS-like REST/WebSocket interface as a Routing Service
+Adapter. The comparison evaluates that against the standalone assumption in the
+TRD and finds a third option the proposal does not consider.
+
+| | Option | Verdict |
+|---|---|---|
+| A | Standalone service (TRD's current assumption) | Acceptable fallback |
+| B | RS Adapter + Processor, one process | **Not recommended** |
+| C | scada-selector as an RS **Processor**; scada-web standalone | **Recommended** |
+
+**Why C.** The two components have opposite fits to the Routing Service model, and
+treating this as one system-wide decision hides that.
+
+- **scada-selector is a textbook Processor** — three inputs (`IdValue`, `MetaData`,
+  `ValueRequest`), one output, holding a per-uid enable set and metadata cache.
+  Multi-input correlation with state is exactly what Processors are for, `update()`
+  is supported on them, and RS supplies config, lifecycle, remote admin, and
+  monitoring for free. This answers OQ-15.
+- **scada-web fits it poorly.** Routing Service has no request/reply primitive, so
+  an HTTP `GET` has nothing to read from and the adapter must rebuild a cache —
+  and FR-REST-003's `sampleStateMask`, `viewStateMask`, `instanceStateMask`, and
+  `filterExpression` **are DataReader semantics**. Option B reimplements, less
+  correctly, the component that already solves the read path. In a standalone
+  service a REST GET is a `take()` with a QueryCondition.
+
+**Two findings worth surfacing.**
+
+1. **[DD-020](design-decisions.md#dd-020) accidentally improved B's case.** Moving
+   selection into scada-selector means scada-web holds one reader and one writer
+   forever, which removes the dynamic-entity requirement that adapters handle
+   worst. B is more viable than it would have been a week ago — just still not
+   viable enough.
+2. **The proposal's own §11 criteria point to standalone for scada-web.** It says
+   prefer a standalone app when you want a tailored API and are not already running
+   RS for other bridging. We aren't, and [OQ-3](#oq-3) leans toward a tailored
+   `/api/v1`. Its recommendation is conditional in exactly the way that matters
+   here, so this is agreement with the proposal rather than a rejection of it.
+
+**The one thing that could invalidate C:** deployment licensing for an RS host
+running our Processor plugin. RS ships with Connext Professional and is installed
+locally, but this needs confirming — folds into [OQ-1](#oq-1).
+
+**If C is rejected, take A, not B.** B's free infrastructure is real but buys the
+wrong things: an admin plane and metrics, paid for by reimplementing sample-state
+tracking and DDS SQL filtering, plus the proposal's own 1–2 week budget just to
+prove the thread hand-off model — spent on plumbing rather than on the mapping
+thesis.
+
+**Not affected either way:** the mapping engine, plan compiler, key semantics, and
+round-trip tests. [DD-010](design-decisions.md#dd-010) keeps the engine
+independent of HTTP and DDS, which is what makes this decision reversible and
+TRD §12 P1 valid regardless.
+
+---
+
+### OQ-24
+**Does `ValueRequest` carry incremental deltas or a full desired-state set?**
+
+- **Status:** READY · **Priority:** HIGH · **Owner:** —
+- **Blocks:** `ValueRequest` semantics; interacts with [DD-023](design-decisions.md#dd-023), SR-003, [OQ-17](#oq-17)
+- **Raised:** 2026-07-27 (second axis of [DD-025](design-decisions.md#dd-025))
+
+**Context.** DD-025 settled the *transport* — the in-band DDS topic. This is the
+*semantics*, and it is orthogonal: both models work over that transport.
+
+| | Model | Shape |
+|---|---|---|
+| A | **Deltas** (today's IDL) | `ADD(5)`, `DELETE(5)` — one uid per sample |
+| B | **Desired state** | "the complete set of enabled uids is {1,5,17}" — one sample carries the whole set |
+
+**The case for B is stronger than it first appears.** scada-web already holds the
+authoritative interest refcount (SR-001), so it always *knows* the full desired
+set. Publishing it makes the message idempotent, which removes three problems at
+once:
+
+- **SR-003 reconciliation disappears.** A restarted filter receives the next
+  desired-state sample and is immediately correct. No restart detection, no
+  re-send protocol. This is the requirement I flagged as most likely to be
+  forgotten, with a blank-display-and-no-error symptom.
+- **[DD-023](design-decisions.md#dd-023) relaxes.** A lost sample stops being
+  fatal, because the next one carries the full truth. `KEEP_LAST depth=1` becomes
+  *correct* rather than dangerous — the latest state is exactly what a
+  desired-state topic wants.
+- **Ordering and duplicate-delivery concerns vanish.** No `ADD`/`DELETE` race.
+
+**The case for A.** It is what the IDL already says, so B means an IDL change
+(a `sequence<UniqueId_t>`, bounded — and the bound then caps total enabled tags,
+which is a real design constraint to pick deliberately). Deltas are also cheaper
+per message when one tag changes, though at operator rates that is irrelevant.
+
+**Interaction with [OQ-17](#oq-17).** A third shape: keep one uid per sample but
+`@key` it and carry a boolean `enabled`, making each uid its own instance of a
+desired-state topic. With `TRANSIENT_LOCAL` a restarted filter recovers the whole
+set from the middleware — SR-003 solved by QoS rather than by protocol. This is
+the same insight OQ-17 reached from the keying direction, and it is arguably the
+cleanest of the three because it keeps messages small *and* idempotent.
+
+**Recommendation: the keyed variant**, if the IDL is open to revision — it gets
+B's idempotence without an unbounded sequence, and `METADATA` moves to its own
+request topic since it is a request, not a state. Otherwise A with `KEEP_ALL` per
+DD-023, which works and is what the current IDL supports.
+
+---
+
+### OQ-25
+**With one shared DataReader, what do per-client read semantics mean — and should
+we keep the WIS polling surface at all?**
+
+- **Status:** READY · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** FR-REST-003; scada-web read path design (P3)
+- **Raised:** 2026-07-27, clarifying
+  [architecture-comparison.md](architecture-comparison.md) §3.1
+
+**Context.** FR-REST-003 inherits WIS's read surface: `removeFromReaderCache`
+(read vs take), `sampleStateMask` (READ / NOT_READ), `viewStateMask` (NEW /
+NOT_NEW), `instanceStateMask`, `filterExpression`, `maxSamples`, `maxWait`.
+
+Those are **per-DataReader** semantics. WIS makes them per-client because in the
+WEDDS model each client creates its own DataReader.
+**[DD-020](design-decisions.md#dd-020) removed that** — scada-web holds one shared
+reader on `SelectedValue`, which is the entire point of the selector.
+
+**The inconsistency.** On a shared reader, three of those parameters are wrong or
+meaningless per client, in *any* hosting arrangement:
+
+| Parameter | On a shared reader |
+|---|---|
+| `removeFromReaderCache=true` (take) | **Unsafe** — one client consuming removes the sample for every other client |
+| `sampleStateMask` | Means "read by the gateway", not "read by this client" |
+| `viewStateMask` | "First seen by the gateway" — a client connecting later sees NOT_NEW for instances that are new *to it* |
+| `instanceStateMask` | **Fine** — a property of the instance, correctly shared |
+| `filterExpression` | **Fine** — per-client QueryConditions on one reader are supported and cheap |
+| `maxSamples`, `maxWait` | **Fine** — per-query and per-WaitSet |
+
+So FR-REST-003 as written is not implementable per-client on this architecture.
+It was inherited from the WIS baseline (TRD §2.2) before DD-020 existed.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Drop the polling surface.** Reads become latest-value lookups; change notification is WebSocket push. `read()` never `take()`, `KEEP_LAST depth=1`. | Cleanest fit. The DDS reader cache *is* the latest-value store, shared safely across clients. Diverges from WIS — fine if [OQ-3](#oq-3) resolves to `/api/v1` only. |
+| B | **Synthesize per-client state** in scada-web: per-client read/view tracking layered over the shared reader. | Preserves the WIS surface, but reimplements per-client what DDS does per-reader — the exact work we criticized Option B of OQ-23 for. |
+| C | **Reader per client.** | Reverses DD-020 and reintroduces the entity explosion the selector exists to prevent. Rejected. |
+
+**Recommendation: A.** This is a SCADA HMI — an operator display wants "the current
+value of these tags" plus "tell me when it changes". That is latest-value plus
+push. Take-once queue semantics are an artifact of WIS's polling model, and
+`KEEP_LAST depth=1` with `read()` is both the correct DDS idiom for current-value
+data and safe to share across clients. It also matches how the sim publishes
+(`IdValue` is `VOLATILE`, `KEEP_LAST depth=1` — current value, not a log).
+
+**If A is chosen, FR-REST-003 must be rewritten**, not just annotated: keep
+`filterExpression`, `maxSamples`, `maxWait`, and `instanceStateMask`; drop
+`removeFromReaderCache`, `sampleStateMask`, and `viewStateMask` with a note that
+they are meaningless without a per-client reader.
+
+**Note:** this weakens — but does not overturn — the §3.1 argument in the
+comparison. The surviving claim is that the reader cache is a queryable,
+instance-indexed store which a standalone service keeps and an RS Adapter throws
+away. That holds under option A here just as much as under B.
+
+---
+
+### OQ-26
+**Does the PoC run one DDS domain across the real-time boundary, or two?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Nothing in the code — scada-selector takes `--field-domain` and
+  `--web-domain` regardless. Blocks the *deployment* story and part of
+  [OQ-22](#oq-22)
+- **Raised:** 2026-07-27, by [DD-028](design-decisions.md#dd-028)
+
+**Context.** DD-028 makes scada-selector the sole conduit between the hard-real-time
+field side and the soft-real-time presentation side. The boundary is enforced by
+**topology** — only the selector has endpoints on both sides — which works within a
+single domain. Running a domain per side adds enforcement by **configuration**: a
+misconfigured scada-web then *cannot* reach field topics, rather than merely not
+being pointed at them.
+
+The selector is built for either. Two participants, two domain flags, one WaitSet
+(conditions from entities on different participants may share one), and topic names
+that stay distinct across the boundary so a single-domain deployment works
+unchanged.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **One domain** (`--field-domain == --web-domain`) | Simplest; matches the sim and the current `scada_web/config.yaml`. The boundary is real but rests on nobody creating a field-side reader in scada-web. One participant. |
+| B | **Two domains**, selector bridges | Enforced by configuration, not just discipline. Field-side discovery contains exactly one subscriber. Costs a second participant with its own discovery and receive threads, and a second QoS block to keep consistent. |
+| C | **One domain, two partitions** | Cheaper than B, and partitions are a *matching* filter rather than an isolation boundary — a participant that names the partition still joins. Weaker than B for the zone claim, more machinery than A. |
+
+**Recommendation: A for the PoC, with B as the documented deployment shape.** The
+work that makes B possible is already done — it is the DD-028 topology plus two
+flags — so B costs nothing to *reach* later and the PoC gains nothing from paying
+for a second participant now. What matters is that the claim be stated precisely:
+under A, zone separation is enforced by topology and one config file; under B, by
+the middleware.
+
+**Decide when** a demo needs to make a security or zoning claim to an outside
+audience, or when the sim moves to separate hardware from the web tier — either
+makes B the honest default. Discard C unless partitions are already being used for
+something else.
+
+---
+
 ## 3. Resolved / deferred / moot
 
 Entries stay in §2 with their status; this table is the index.
 
 | ID | Question | Outcome | Resolved |
 |---|---|---|---|
+| [OQ-4](#oq-4) | Cross-topic join in the PoC? | ANSWERED — relocated to scada-selector → [DD-021](design-decisions.md#dd-021) | 2026-07-27 |
 | [OQ-9](#oq-9) | Embeddable library v1 or v2? | ANSWERED — neither; withdrawn → [DD-018](design-decisions.md#dd-018) | 2026-07-27 |
 | [OQ-10](#oq-10) | Reference hardware for §7.1? | MOOT for PoC → [DD-018](design-decisions.md#dd-018) | 2026-07-27 |
 | [OQ-2](#oq-2) | Ingest RS assignment configs? | DEFERRED — reopen if migration becomes real | 2026-07-27 |
@@ -432,8 +1120,17 @@ if one turns out to need an answer.
   TypeObject v2 on by default). Discovery callbacks may fire before a type
   resolves, and may fire more than once per endpoint. See RISK-4; FR-DDS-008 is
   deliberately `MAY`.
-- **Local toolchain is GCC 9.4 / CMake 3.16**; shipped Connext libraries are
-  built for `x64Linux4gcc8.5.0`. Hence DD-006 (C++17). If the toolchain is
-  upgraded, revisit.
+- **Local toolchain is GCC 9.4 / CMake 3.16.** Hence DD-006 (C++17). If the
+  toolchain is upgraded, revisit.
+- **`CONNEXTDDS_ARCH` is `x64Linux4gcc7.3.0`**, not `x64Linux4gcc8.5.0`. The core
+  libraries under `lib/` are gcc 7.3.0; the gcc 8.5.0 tree under
+  `resource/app/lib` holds the bundled *services*. Picking the wrong one fails at
+  link, not configure. `BUILD_SHARED_LIBS=ON` is also required or
+  `FindRTIConnextDDS` resolves a static variant that is not present. Both
+  verified by building — see
+  [scada-selector-implementation.md](../scada_select/docs/scada-selector-implementation.md) §1.
+- **rtiddsgen 4.7.0 generates public data members, not accessors** for C++11:
+  `sample.uid`, not `sample.uid()`. Most RTI example code shows the older
+  getter/setter style.
 - **No published WIS performance figures exist.** Every comparative claim must
   be measured against the local binary, never cited.

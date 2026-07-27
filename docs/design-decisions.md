@@ -68,6 +68,14 @@ a stated invalidation condition is a belief, and beliefs are what rot.
 | [DD-017](#dd-017) | Encode 64-bit integers as JSON strings by default | ACCEPTED | — |
 | [DD-018](#dd-018) | Scope to a prototype PoC: no hardware targets, no embeddable library | ACCEPTED | OQ-9, OQ-10 |
 | [DD-019](#dd-019) | PoC uses the simplest workable concurrency model | ACCEPTED | — |
+| [DD-020](#dd-020) | Four-component system; scada-selector owns key-based selection | ACCEPTED | — |
+| [DD-021](#dd-021) | scada-selector enriches values with MetaData; join stays out of the engine | ACCEPTED | OQ-4 |
+| [DD-022](#dd-022) | Thread-per-connection is correct for this system, not just for the PoC | ACCEPTED | — |
+| [DD-023](#dd-023) | `ValueRequest` must be RELIABLE + KEEP_ALL | ACCEPTED | — |
+| [DD-024](#dd-024) | Selection and presentation are separate roles; metadata lookup belongs to presentation | ACCEPTED | supersedes DD-021 |
+| [DD-025](#dd-025) | Enable/disable ids over the in-band DDS topic, not Routing Service remote administration | ACCEPTED | — |
+| [DD-026](#dd-026) | scada-selector uses compiled types — which rules out a Routing Service Processor | ACCEPTED | OQ-23 (Role 1) |
+| [DD-027](#dd-027) | scada-selector downrates per id; scada-web relays ids **and rate** | ACCEPTED | — |
 
 ---
 
@@ -103,10 +111,17 @@ complaint, in which case add a convenience layer — do not replace this model.
 ### DD-002
 **Operate on `DynamicData` throughout; require no generated type support code.**
 
-- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** FR-DDS-006, FR-TYPE-001
+- **Status:** ACCEPTED — **scoped to scada-web (Role 2)** by [DD-026](#dd-026)
+- **Date:** 2026-07-27 · **Amended:** 2026-07-27 · **Affects:** FR-DDS-006, FR-TYPE-001
 
-**Decision.** All DDS interaction uses `dds::core::xtypes::DynamicData` and
-`DynamicType`. The service is never rebuilt to add a user type.
+> **Scope amendment.** This applies to **scada-web only**. scada-selector uses
+> compiled types for the opposite and equally good reason (DD-026). The two roles
+> have deliberately opposite type strategies: Role 2 must handle types it has
+> never seen, Role 1 handles one known type as fast as possible.
+
+**Decision.** All DDS interaction **in scada-web** uses
+`dds::core::xtypes::DynamicData` and `DynamicType`. The service is never rebuilt
+to add a user type.
 
 **Context.** A gateway cannot know its types at build time. This is also what
 makes the mapping engine possible at all — mapping operates on type descriptors,
@@ -682,3 +697,788 @@ much harder to move to async later.
 
 **Revisit if.** The PoC needs to demo more than a handful of concurrent clients,
 or productization begins — at which point DD-009 takes effect as written.
+**Amended by [DD-022](#dd-022):** this is no longer merely a prototype shortcut.
+
+---
+
+### DD-020
+**Adopt a four-component architecture, with a separate scada-selector app owning
+key-based selection.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** FR-XF-021, DD-022, [system-architecture.md](system-architecture.md)
+
+**Decision.** The deliverable is four components: **scada-sim** (exists, Python,
+Level 0/1), **scada-selector** (new, Level 2), **scada-web** (the gateway), and a
+**browser interface**. scada-selector subscribes to a `ValueRequest` command topic
+carrying `ADD`/`DELETE`/`METADATA` for a `uid`, maintains the set of enabled
+uids, and republishes only those onto an output topic. scada-web holds exactly one
+reader and one writer against it, regardless of client count.
+
+**Context.** Direction from the project owner. The alternative — which the TRD
+implicitly assumed — was per-client content-filtered readers inside scada-web.
+The control topic for this already exists in
+[sim/PlcValue.idl](../sim/PlcValue.idl) (`ValueRequest`, `Command_t`), so the
+data model anticipated this design before the requirement was stated.
+
+**Alternatives.** Per-client content-filtered DataReaders in the web tier.
+Rejected on DDS resource grounds rather than threading: a reader per client means
+discovery traffic per client, a queue per client, and filter predicates evaluated
+once per sample per reader inside the middleware — plus discovery churn every
+time an operator navigates between mimic screens. Expressing selection as *data*
+rather than as *entities* avoids all of it.
+
+**Consequences.**
+
+*Good:* scada-web's DDS footprint is fixed and small. Selection logic is testable
+without a web tier at all — drive `ValueRequest` by hand and watch the output
+topic with `rtiddsspy`, which makes scada-selector the cheapest real progress
+available (system-architecture §9).
+
+*Cost:* a new component to build and operate, and a new failure mode — if
+scada-selector is down, everything downstream is blind. It also introduces
+interest-refcounting state in scada-web (SR-001…004): two clients watching the
+same tag must not have one's disconnect turn the tag off for the other. That
+refcount is a classic bug source, and reconciliation after a filter restart
+(SR-003) is the part most likely to be forgotten, because its symptom is a blank
+display with no error.
+
+*Deliberately not moved into the filter:* view-schema mapping stays in scada-web.
+The filter operates on the DDS data model; the moment it starts shaping data for
+web clients, the separation collapses and both components need to know about
+views.
+
+**Revisit if.** The refcounting and reconciliation state in scada-web turns out
+to cost more than the per-client readers it replaced — unlikely, but it is the
+honest comparison.
+
+---
+
+### DD-021
+**scada-selector enriches values with cached MetaData; cross-topic join stays out
+of the mapping engine.**
+
+- **Status:** **SUPERSEDED by [DD-024](#dd-024)** — the conclusion (no general join in the engine) survives; the placement was wrong
+- **Date:** 2026-07-27 · **Superseded:** 2026-07-27 · **Resolves:** OQ-4 (by relocation) · **Affects:** FR-XF-022, system-architecture §6.2
+
+> **Superseded.** This entry put the `IdValue` × `MetaData` correlation in
+> scada-selector. A role clarification showed that is the wrong component:
+> enrichment is data-model work, and it makes the model *fatter* while the
+> presentation role exists to make it *slimmer*. The correlation moved to
+> scada-web, which needs the same map for its tag catalogue regardless.
+> **OQ-4's answer is unchanged** — general join stays out of the v1 engine.
+> Reasoning preserved below.
+
+**Decision.** scada-selector caches `MetaData` per uid and publishes an
+`EnabledValue` type carrying the value together with `longName`, `hostname`, and
+`limits`. FR-XF-022 (join) stays out of the v1 mapping engine.
+
+**Context.** A useful HMI view is `{tag, value, units, limits, alarm_state}`,
+which spans `IdValue` and `MetaData` correlated on `uid`. That is precisely the
+`latest_value` join that OQ-4 recommended cutting from the PoC — so **the natural
+view for this system requires the one transformation feature we planned to drop.**
+Discovered only when the real IDL appeared; not visible when the TRD was drafted.
+
+**Alternatives.** (a) Reinstate join in the mapping engine. Rejected: it is the
+single largest driver of state in the engine — a per-key cache with eviction,
+memory bounds, and staleness semantics — and it would land in P1, the phase whose
+whole purpose is to derisk the engine quickly. (b) Have the browser correlate the
+two topics itself. Rejected: it pushes DDS data-model knowledge into the HMI,
+across a level boundary the architecture is supposed to maintain.
+
+scada-selector is the right home because it *already* holds per-uid state for the
+enabled set, so a per-uid MetaData cache is nearly free, and `MetaData` is
+`TRANSIENT_LOCAL`, so the filter reliably has every tag's description regardless
+of startup ordering.
+
+**Consequences.** The join is hard-coded in C++ rather than declarative — a real
+loss of generality, accepted because there is exactly one join in this system and
+its shape is fixed. `EnabledValue` becomes a slightly denormalized type,
+repeating static metadata on every sample; at SCADA rates that is not a concern,
+but it is a genuine cost rather than a free lunch.
+
+**Revisit if.** A second join appears, or a view needs correlation the filter does
+not already perform. That is the signal to reopen OQ-4 and build it declaratively
+rather than adding a second hard-coded special case.
+
+---
+
+### DD-022
+**Thread-per-connection is correct for this system, not merely tolerable for the
+PoC.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** DD-009 (closed), DD-019, OQ-5, NFR-PERF-005
+
+**Decision.** Close DD-009 (async I/O) rather than leaving it deferred. The
+concurrency model chosen in DD-019 is the intended design, not a shortcut to be
+unwound later.
+
+**Context.** Two separate things resolve the threading question, and conflating
+them would leave a wrong conclusion on the record.
+
+1. **scada-selector (DD-020) removes the per-client DDS cost** — no reader per
+   client, no repeated filter evaluation, no discovery churn. This was the
+   serious resource problem and it is genuinely solved.
+
+2. **But it does not reduce connection count.** N browser clients are still N
+   sockets; thread-per-connection still means N threads. The filter app does not
+   touch that axis, and it would be wrong to claim otherwise.
+
+What actually retires the concern is that **NFR-PERF-003's 10,000-connection
+target was the wrong requirement for this system.** I wrote it by importing a
+web-scale assumption into a plant-control context. The client population is
+Level 2 operator consoles and HMI displays — tens, plausibly low hundreds. Thread
+-per-connection is comfortable there with room to spare.
+
+**Alternatives.** Keeping DD-009 as deferred product direction. Rejected because
+it would leave a standing implication that the web tier needs rewriting before
+production, which is not true at this client scale and would misdirect effort.
+
+**Consequences.** OQ-5's decision criterion is now simply time-to-working, which
+points at Boost.Beast; HTTP/2 and connection-scaling comparisons are irrelevant.
+The system must not be represented as having demonstrated large-scale connection
+fan-out, because it has not and is not designed to.
+
+The DD-019 invariant still stands and is worth keeping even here: **no blocking
+DDS calls on the mapping or serialization path.** Cheap to honor now; expensive to
+retrofit if the client population is ever wrong by an order of magnitude.
+
+**Revisit if.** The client population turns out to be thousands — e.g. a
+read-only public dashboard is added, which is a different system with a different
+shape. Then DD-009 is reinstated as written.
+
+---
+
+### DD-023
+**`ValueRequest` must be published RELIABLE + KEEP_ALL.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** system-architecture §4.1, SR-001
+
+**Decision.** The `ValueRequest` topic uses `RELIABLE` reliability with
+`KEEP_ALL` history on both writer and reader. Not `KEEP_LAST`.
+
+**Context.** `ValueRequest` has no `@key` in
+[sim/PlcValue.idl](../sim/PlcValue.idl), so every command lands on a single
+instance. Under `KEEP_LAST depth=1` — the QoS the sim uses for its other
+topics — a writer may replace an unacknowledged sample with a newer one.
+`RELIABLE` guarantees the *latest* sample is delivered, not that every sample is.
+So a burst of `ADD(1) ADD(2) ADD(3)` can silently lose the first two.
+
+This is a command stream, where every message carries distinct intent and none is
+superseded by the next. It needs `KEEP_ALL`.
+
+**Alternatives.** (a) Add `@key uid` to `ValueRequest`, making each uid its own
+instance so `KEEP_LAST depth=1` retains one command per uid. Genuinely tempting
+and arguably the better data model — but the keyed semantics are subtly wrong,
+because `ADD(5)` followed quickly by `DELETE(5)` would have the DELETE replace
+the ADD on the same instance, which happens to be the right outcome here but only
+by luck. Changing the IDL also touches the sim. Worth considering if the IDL is
+open to revision. (b) Batching commands into one sample — a sequence of requests
+rather than one per sample. Reduces exposure but does not remove it.
+
+**Verified against Connext 7.7.0 documentation.** Under `KEEP_LAST`, when an
+instance already holds `depth` samples the DataWriter replaces the oldest
+**independently of its acknowledged status** and still returns `RETCODE_OK`. The
+guarantee is "reliably deliver the latest N samples per instance", not "deliver
+every write". Two specifics that follow:
+
+- **`KEEP_ALL` must be set on both the writer and the reader.** Setting it on
+  only one side does not give strict reliability.
+- **`write()` blocks and then returns `RETCODE_TIMEOUT`** once
+  `reliability.max_blocking_time` expires. Callers must check the return — a
+  timed-out command is a silently dropped command otherwise, which is the exact
+  failure this decision exists to prevent.
+
+**Consequences.** `KEEP_ALL` means the writer blocks when resource limits are
+reached rather than dropping — correct behavior for commands, but send paths must
+handle a blocking or failing write rather than assuming fire-and-forget. Requires
+explicit `RESOURCE_LIMITS` so a stuck or dead filter cannot block scada-web
+indefinitely. Backpressure here is a feature: it surfaces overload instead of
+silently discarding intent.
+
+**Consider also:** a `LIFESPAN` QoS on `ValueRequest` so that stale commands
+queued during an outage do not execute long after they stopped being meaningful.
+Tracked as [OQ-18](questions.md#oq-18).
+
+**Failure mode if ignored:** tags silently never turn on, load-dependently, most
+likely when an operator opens a screen requesting many tags at once — i.e. it
+will pass every light test and fail in the demo.
+
+**Revisit if.** The IDL is opened for revision, in which case evaluate keying
+`ValueRequest` on `uid` as the cleaner fix — tracked as
+[OQ-17](questions.md#oq-17), which also notes that a keyed `TRANSIENT_LOCAL`
+"desired state" topic would let a restarted scada-selector recover its enable set
+from the middleware instead of needing reconciliation (SR-003).
+
+---
+
+### DD-024
+**Selection and presentation are separate roles; all data-model work — including
+metadata lookup — belongs to presentation.**
+
+- **Status:** ACCEPTED, amended by [DD-028](#dd-028) · **Date:** 2026-07-27 · **Supersedes:** [DD-021](#dd-021) · **Affects:** FR-XF-022, OQ-13, OQ-20, system-architecture §1a, §4.2, §6.2
+
+> **Amended by [DD-028](#dd-028) — transport path only.** The "subscribes to
+> `MetaData` directly" clause below is withdrawn: metadata now reaches scada-web
+> through scada-selector, so the selector can be the sole hard-RT ↔ soft-RT
+> conduit. **Everything else here stands**, and the ownership argument is
+> untouched: scada-web still holds the uid→metadata map and performs all
+> correlation, and the selector still holds no metadata map. Forwarding a topic
+> unmodified is transport; the `EnabledValue` merge this entry withdrew stays
+> withdrawn.
+
+**Decision.** Two roles, cleanly divided:
+
+- **Role 1, selection (scada-selector):** gate which uids flow. **The output type is
+  the input type** — filtered `IdValue` republished on a different topic name. No
+  data-model changes of any kind.
+- **Role 2, presentation (scada-web):** all model transformation and protocol
+  conversion. ~~Subscribes to `MetaData` directly and~~ holds the uid→metadata map
+  (receives `MetaData` via the selector per DD-028).
+
+The enriched `EnabledValue` type from DD-021 is withdrawn.
+
+**Context.** DD-021 put the `IdValue` × `MetaData` correlation in scada-selector to
+keep join out of the mapping engine. A role clarification exposed the flaw:
+enrichment is data-model work, and it makes the model **fatter**, while the
+presentation role exists to make it **slimmer**. Fattening in one component so the
+next can slim it is incoherent, and it placed model concerns in a component whose
+job is selection.
+
+**The decisive argument is duplication, not purity.** scada-web needs the
+uid→metadata map anyway — it is the tag catalogue for name-based lookup
+([OQ-13](questions.md#oq-13)). Under DD-021, scada-web would have held the
+catalogue *and* received the same metadata repeated on every value sample. Same
+data, twice, one copy denormalized.
+
+**Alternatives.** (a) Keep DD-021's enrichment — rejected above. (b) Reinstate
+general join (FR-XF-022) in the engine — rejected: it is the largest driver of
+engine state and this correlation does not need it (below). (c) Have the browser
+correlate — rejected, pushes DDS data-model knowledge across a level boundary.
+
+**Consequences.**
+
+*Simplifications, all of them:*
+- **No new type.** `SelectedValue` reuses `IdValue`, so
+  [OQ-20](questions.md#oq-20) shrinks to almost nothing — no definition to
+  duplicate or drift across components.
+- **No denormalization.** Static metadata is no longer repeated per sample.
+- **The filter becomes expressible as a plain route** — input topic `IdValue`,
+  output topic `SelectedValue`, same registered type — which is what makes the
+  Processor recommendation ([OQ-23](questions.md#oq-23)) clean.
+- **One map serves two needs** in scada-web: catalogue and view lookup.
+
+*Cost:* scada-web gains a second reader and holds metadata for all tags, not just
+enabled ones. Bounded by tag count at a few hundred bytes each — megabytes at
+plant scale, and it is what a catalogue requires regardless.
+
+*New DSL surface:* a `<lookup>` construct (mapping-dsl §3.8), which is **not**
+FR-XF-022. Reference-data lookup is single-key exact match against a
+slowly-changing keyed topic, read-only, with no time semantics and no eviction
+policy. General join has all four. Keeping them distinct is what preserves OQ-4's
+answer.
+
+**Revisit if.** A correlation appears that needs time semantics, a non-static
+source, or bidirectional participation. That is a real join, and it reopens OQ-4
+rather than stretching `<lookup>` to cover it.
+
+---
+
+### DD-025
+**Enable/disable ids over the in-band `ValueRequest` DDS topic, not Routing
+Service remote administration.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** OQ-23, DD-020, DD-023, system-architecture §4.1
+
+**Decision.** Per-id enablement travels as ordinary DDS data on the
+`ValueRequest` topic, consumed as a named **input** of the Processor's route.
+Routing Service remote administration is **not** used for per-id commands — it
+remains the right tool for operational changes (disable a route, change a
+non-per-id property, save config, manual intervention via `rtirssh`).
+
+**Context.** If scada-selector becomes a Routing Service Processor
+([OQ-23](questions.md#oq-23)), RS's own admin plane looks like a natural command
+channel: it is DDS request/reply on
+`rti/service/administration/command_request` with `CREATE`/`GET`/`UPDATE`/`DELETE`,
+and a Processor's properties *can* be updated at runtime. So the question is real
+rather than rhetorical.
+
+**Why remote administration is the wrong tool here.** Verified against 7.7.0 docs:
+
+1. **It is a control plane, not a data path.** Every change is a request/reply
+   round trip. An operator opening a mimic with 50 tags is 50 round trips, or one
+   bulky XML document.
+2. **There is no processor resource path.** You `UPDATE` the *route* with a
+   `<processor><property>` block, so the granularity is "replace the processor's
+   property set", not "add uid 5". Concurrent changes from two clients race on the
+   whole set.
+3. **Properties are string key/value pairs in XML.** A set of hundreds of uids
+   becomes either one giant comma-separated value rewritten wholesale, or one
+   property per uid. Both are poor.
+4. **Only mutable properties can change while enabled.** Anything else requires
+   disable → update → re-enable, which drops the route and its data flow.
+5. **It couples scada-web to Routing Service.** OQ-23 is still open. The
+   `ValueRequest` design works identically whether scada-selector is a Processor or
+   a standalone app; an admin-based design breaks entirely if OQ-23 resolves to
+   standalone. Given an open question, prefer the mechanism that survives both
+   answers.
+
+**Alternatives.** (a) Remote admin — rejected above. (b) A dynamically rewritten
+content-filter expression on the Input via admin `UPDATE` — already rejected in
+system-architecture §1a: `uid = 1 OR uid = 2 OR ...` collapses past a few dozen
+tags. (c) In-band DDS topic — chosen.
+
+**Consequences.** The Processor declares two inputs — `ValueRequest` (control) and
+`IdValue` (data) — and one output. `on_data_available(Route&)` fires when either
+has data, so the processor must drain control first, then data, in that order
+within each callback. The enable set is processor state, which is why
+[DD-023](#dd-023)'s `KEEP_ALL` matters: a lost `ADD` is a tag that silently never
+turns on.
+
+**Unresolved second axis, tracked as [OQ-24](questions.md#oq-24):** this decision
+covers *transport*, not *semantics*. Whether the topic carries incremental deltas
+(`ADD`/`DELETE`, as the IDL does today) or a full desired-state set is a separate
+question with real consequences for DD-023 and SR-003. Both work over this
+transport.
+
+**Revisit if.** Command rate ever becomes high enough to matter as a data path —
+it will not; this is operator-driven, so tens per second at worst.
+
+---
+
+### DD-026
+**scada-selector uses compiled IDL types, not `DynamicData` — which rules out
+hosting it as a Routing Service Processor.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-23](questions.md#oq-23) for Role 1 · **Affects:** DD-002 (scoped), DD-020, OQ-20, architecture-comparison §5, §7
+
+**Decision.** scada-selector is built against **rtiddsgen-generated C++ types**
+from `PlcValue.idl`, and runs as a **standalone C++ application**. It is not a
+Routing Service Processor.
+
+**Context.** Requirement from the project owner: the selector subscribes to
+high-rate SCADA topics and republishes only selected samples, so per-sample cost
+is its defining constraint. With `DynamicData`, reading the key is
+`data.value<int32_t>("uid")` — a member lookup by name on every sample. With a
+generated type it is `sample.uid()`, a struct field access resolved at compile
+time. On the hot path of a high-rate stream that difference is the whole point of
+the component.
+
+**The finding that forces standalone.** Verified against 7.7.0 documentation:
+**Routing Service's built-in DDS adapter is DynamicData-based, and there is no
+documented XML configuration that binds `<dds_input>`/`<dds_output>` to generated
+C++ types for a Processor's `TypedInput<T>`.** `TypedInput<T>` is a real framework
+capability, but with the built-in DDS adapter the route's data representation is
+DynamicData. Getting generated types into a Processor would require a *custom
+adapter* — i.e. writing DDS-to-DDS plumbing to replace the adapter that exists
+precisely to provide it. Absurd, and rejected.
+
+So the compiled-types requirement and the Processor recommendation are
+incompatible. **The requirement wins**; the Processor recommendation for Role 1 is
+withdrawn.
+
+**Alternatives considered.**
+
+- *DynamicData with `skip_deserialization`.* Connext can keep a `DynamicData`
+  sample CDR-backed rather than eagerly deserializing, which helps when a route
+  forwards without inspecting fields. It does not fit: the selector must inspect
+  `uid` on every sample to decide, which is exactly the case the optimization
+  does not cover.
+- *Custom RS adapter exposing generated types.* Rejected above.
+- *Content-filtered topic driven by admin updates.* Already rejected
+  (system-architecture §1a) — the expression collapses past a few dozen tags.
+
+**Consequences.**
+
+*Lost:* everything Routing Service was going to supply free for this component —
+XML configuration, lifecycle, remote administration, and monitoring topics. The
+selector now owns its own config, logging, and shutdown. This is the real price of
+the requirement and it should be stated plainly rather than discovered.
+
+*Gained:* full control of the hot path, and the ability to use techniques that are
+awkward or impossible inside RS (below).
+
+*Type flexibility:* the selector is compiled against `PlcValue.idl`. A new SCADA
+type means a rebuild. Correct for Role 1 — it handles one known high-rate stream —
+and precisely the opposite of Role 2's requirement, which is why DD-002 is now
+scoped rather than superseded.
+
+*[OQ-20](questions.md#oq-20) gets cleaner:* one IDL, two automated derivations —
+`rtiddsgen` for the selector's C++ types, `rtiddsgen -convertToXml` for the XML
+types library scada-web loads at runtime (DD-007). Neither is hand-transcribed, so
+there is nothing to drift.
+
+*[DD-025](#dd-025) is vindicated:* its fifth argument was that the in-band
+`ValueRequest` topic works whether or not the selector is an RS Processor. It is
+now not one, and the command path needs no change.
+
+**Implementation note — filtering without touching the payload.** `IdValue` is
+keyed on `uid`, so `SampleInfo::instance_handle` identifies the tag without
+deserializing anything. `DataReader::lookup_instance()` maps a known key value to
+its handle, so the selector can hold a set of *enabled instance handles* and
+filter on `SampleInfo` alone. `take_instance()` is a further option — read only
+the instances that are enabled. Worth benchmarking against the straightforward
+`sample.uid()` check, which is already cheap with compiled types; do not assume
+the clever version wins.
+
+**Revisit if.** RTI documents a way to bind generated types to built-in DDS
+adapter routes, or measurement shows `DynamicData` key access is not in fact the
+bottleneck at the rates involved — in which case the Processor option, and the
+free infrastructure with it, becomes available again.
+
+---
+
+### DD-027
+**scada-selector downrates per id; scada-web relays selected ids *and* the
+requested rate.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** DD-002, DD-020, DD-024, DD-025, OQ-17, OQ-24, system-architecture §1a, §4.1
+
+**Decision.** Role 1 is **selection in two dimensions — which tags, and how
+often.** scada-web sends both: the set of enabled uids and, per uid, the rate it
+wants. scada-selector enforces both, absorbing the full-rate stream with compiled
+types and emitting a decimated one. It still makes **no data-model change** — the
+output type is the input type.
+
+**Context — the field finding this answers.** Batched reception of small samples
+into a `DynamicData` DataReader degrades measurably. The mechanism is documented:
+Connext does **not** keep a batch as a unit in the reader queue — each sample in a
+batch is deserialized and processed individually. Batching therefore reduces
+network overhead without reducing per-sample receive cost, and for `DynamicData`
+that per-sample cost is materially higher than for a generated type, because the
+sample is deserialized into a reflective representation rather than a compile-time
+layout. A batch of many tiny samples concentrates that cost into a burst.
+
+That is a direct threat to [DD-002](#dd-002), which keeps scada-web on
+`DynamicData` — necessarily, since the mapping engine operates on type descriptors
+rather than C++ structs, and without it there is no mapping engine.
+
+**Why DD-002 survives.** The selector is the mitigation. It sits where the
+high-rate batched stream arrives, handles it with compiled types (DD-026), and
+emits a stream that has been reduced on **both** axes before any `DynamicData`
+reader sees it:
+
+| | Reduction | Effect on the downstream DynamicData reader |
+|---|---|---|
+| Tags | Only enabled uids | Fewer instances |
+| Rate | Per-uid decimation | Fewer samples per instance per second |
+
+The two multiply. An operator display showing 200 of 5,000 tags at 1 Hz, from a
+source publishing all 5,000 at 50 Hz, is a reduction of three orders of magnitude
+before `DynamicData` is involved at all. **The expensive representation is used
+only where the volume is small, and the cheap one only where it is large** — which
+is the same principle as the type split in DD-026, applied to rate.
+
+**Consequences.**
+
+*The IDL gained a rate field* — **applied 2026-07-27.** `ValueRequest` now carries
+`unsigned long period_ms` alongside `uid`, `name`, `command`:
+
+```idl
+struct ValueRequest {
+    UniqueId_t     uid;
+    Name_t         name;
+    Command_t      command;
+    unsigned long  period_ms;   // 0 = every sample; ADD only
+};
+```
+
+Integer milliseconds rather than float Hz, so there is no rounding ambiguity about
+what rate was requested. `period_ms` applies to `ADD` and is ignored for `DELETE`
+and `METADATA`; re-sending `ADD` for an enabled uid updates its rate. Both
+derivations were regenerated and verified to agree — `rtiddsgen` produces
+`uint32_t period_ms`, and [sim/plc_types.py](../sim/plc_types.py) was updated to
+match (it hand-transcribes the IDL, exactly the drift risk
+[OQ-20](questions.md#oq-20) describes).
+
+*This was the minimal change, not the fuller redesign.*
+[OQ-17](questions.md#oq-17) and [OQ-24](questions.md#oq-24) recommend going
+further — `@key uid` with `{enabled, period_ms}` and `TRANSIENT_LOCAL`, i.e.
+keyed desired state rather than a command stream. That step was **not** taken, so
+its two benefits are not yet realised: [DD-023](#dd-023)'s `RELIABLE + KEEP_ALL`
+is still required, and SR-003 reconciliation is still required. Both remain open
+questions rather than settled design.
+
+*Do not batch the selector's output.* Batching would reconcentrate exactly the
+burst the downrating exists to remove, and buys little once volume is low. Batch
+the *input* side if the publisher benefits; leave the output unbatched.
+
+*Refcounting gains a dimension.* SR-001's per-uid refcount must now also resolve
+competing rates: two clients watching one tag at 1 Hz and 10 Hz means the selector
+should be told **the fastest requested rate**, with scada-web decimating further
+per client if it wants. Interest is `max(rate)` over interested clients, not a
+count.
+
+*Rate semantics — recommended, not yet ratified:*
+- **Decimate on arrival**, not on a timer: keep a per-uid `last_emitted`, forward
+  the first sample arriving at or after `last_emitted + period`. O(1) per sample,
+  no timers, and naturally correct when the source is slower than requested.
+  Even-spacing via a timer would be smoother but requires holding samples and
+  waking up; not worth it for display data.
+- **Lifecycle events bypass the rate limit.** Dispose and unregister
+  (`valid_data == false`) must be forwarded immediately. A display learning that a
+  tag went stale at the next tick rather than now is a real defect, and this is
+  the sort of detail that gets missed.
+- **Wall clock, not `valueTime`**, for the decimation decision — source timestamps
+  may be irregular or skewed.
+
+**Revisit if.** Measurement shows scada-web's `DynamicData` path is still the
+bottleneck after downrating. Mitigations then, in order: reuse one `DynamicData`
+instance across `take(sample, info)` calls; tune `buffer_initial_size` with
+`trim_to_size = 0`; and only as a last resort reconsider DD-002 — which would mean
+giving up the mapping engine, so it is close to unthinkable.
+`skip_deserialization` is **not** available to us: it requires that the consumer
+not inspect fields, and inspecting fields is scada-web's entire job.
+
+---
+
+### DD-028
+**scada-selector is the sole conduit between the hard-real-time field side and the
+soft-real-time presentation side; `MetaData` is forwarded through it.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Amends:** [DD-024](#dd-024) (transport path only) · **Affects:** DD-020, DD-023, DD-027, OQ-13, OQ-22, OQ-26, SR-003, system-architecture §2, §4.3, §4.4, §7, scada-web `config.yaml`
+
+**Decision.** The system has two timing zones, and scada-selector is the boundary
+between them:
+
+- **Hard real time (field side):** sim L1 publishers and the selector's readers.
+  Bounded, deterministic latency; a missed deadline is a failure.
+- **Soft real time (web side):** the selector's writers, scada-web, browsers.
+  Latency is a target; a late or dropped display update is a degradation.
+
+Two consequences, and the second is what forced this entry:
+
+1. **`PLC::MetaData` is forwarded through the selector** — read on the field side,
+   republished unmodified as `PLC::SelectedMetaData` on the web side — rather than
+   read directly by scada-web.
+2. **No component other than the selector has DDS endpoints on both sides.**
+   scada-web has no field-side reader, no field-side participant, and no field-side
+   discovery traffic.
+
+**Context.** DD-024 correctly moved metadata *ownership* to scada-web: the
+uid→metadata map, correlation, and the `<lookup>` construct are presentation work.
+But it also had scada-web subscribe to `MetaData` **directly**, and that clause —
+incidental to DD-024's argument — put a Level 2 web gateway on the field-side
+domain. The boundary was drawn in the diagram and then crossed by one topic.
+
+The cost of that crossing is not the metadata bytes; `MetaData` is written once per
+tag at startup. It is that scada-web's **discovery traffic, restarts, and
+per-client churn appear on the control network**, and that no domain or zone
+separation is expressible while a soft-real-time consumer holds a field-side
+endpoint.
+
+**What this does and does not change about DD-024.** Only the transport path
+changes. Ownership does not: scada-web still holds the uid→metadata map, still
+performs all correlation, and the selector still holds no metadata map (its
+catalogue lives entirely in middleware caches it configures but does not
+interpret). Forwarding two topics unmodified is transport; merging metadata into
+value samples — the `EnabledValue` design DD-024 withdrew — is presentation, and
+stays withdrawn. The test: the selector reads `uid` and no other field of either
+type.
+
+**Alternatives.** (a) **Keep the direct subscription** — rejected: it is the one
+thing that makes the zone boundary unenforceable, for no benefit beyond one fewer
+hop on a startup-only topic. (b) **Forward metadata only for selected uids** —
+rejected: scada-web's map *is* the tag catalogue, needed to answer "what tags
+exist" and to resolve a name to a uid before anything is selected. Filtering it
+creates a bootstrapping deadlock — a client cannot ask for a tag it cannot
+discover. (c) **Merge metadata into `SelectedValue`** — rejected; this is DD-021,
+withdrawn by DD-024, and nothing here reopens it. (d) **Separate bridge process for
+metadata** — rejected: two conduits are not a boundary, and the selector already
+has both sides.
+
+**Consequences.**
+
+*The invariant that must hold, or the boundary is decorative:* **no soft-side
+congestion may back-pressure the hard side.** Concretely, both outbound writers use
+`KEEP_LAST`, never `KEEP_ALL`. A `RELIABLE` + `KEEP_ALL` writer that fills its
+resource limits blocks in `write()` on the dispatch thread, which stops draining
+the inbound reader, whose cache then overflows — so a stalled browser would degrade
+field-side reception. `KEEP_LAST` overwrites the oldest sample instead of blocking,
+confining the cost to the slow consumer's own data. `max_blocking_time` is short
+and a timeout is a logged drop, never a retry inside the callback. This makes
+`KEEP_ALL` correct on the inbound `ValueRequest` reader ([DD-023](#dd-023)) and
+wrong on both outbound writers; the asymmetry is deliberate.
+
+*Dropping under congestion is policy, not failure.* [DD-027](#dd-027) already
+drops deliberately, so the same disposition under a different trigger needs no new
+semantics: the contract downstream is "latest, at most this often", never "all".
+
+*The selector becomes the durability re-origin.* `MetaData` is `TRANSIENT_LOCAL`,
+so the forwarded topic must be too, or a late-joining scada-web gets no catalogue.
+`TRANSIENT_LOCAL` dies with the writer, so on a selector restart the catalogue is
+re-read from the sim and republished — the recovery path is the startup path. Cost:
+during a selector restart a late-joining scada-web sees an empty catalogue for two
+DDS hops instead of one, and must not read "catalogue empty" as "no tags exist".
+Its map update is keyed by uid and therefore idempotent, so re-delivery is
+harmless.
+
+*`Command_t::METADATA` finally has an owner.* The IDL has carried it since before
+the selector existed, and under DD-024 nothing could service it. The selector now
+can, by re-reading its own reader cache and rewriting one instance. This also makes
+`read()` — not `take()` — a **requirement** on the metadata reader, since taking
+would empty the cache that both the command and restart recovery depend on.
+
+*[OQ-22](questions.md#oq-22) becomes structurally answerable.* Its option (b),
+"separate DDS domains per level with a deliberate bridge as the conduit", was
+already the recommended cheap step and was impossible while scada-web held a
+field-side endpoint. The conduit is now a real component rather than an assumption.
+Whether to actually run two domains is [OQ-26](questions.md#oq-26); the selector
+takes `--field-domain` and `--web-domain` either way, and setting them equal is the
+single-domain deployment. Topic names stay distinct across the boundary even though
+two domains would permit reuse, so that single-domain deployment works and a
+misconfigured domain flag fails loudly.
+
+*Entity count rises from three to five*, and to two participants in the two-domain
+deployment. A `WaitSet` may hold conditions from entities on different
+participants, so the single-threaded dispatch loop survives unchanged; each
+participant brings its own discovery and receive threads, which is the cost.
+
+*scada-web's configuration must change when the selector lands.*
+[scada_web/config.yaml](../scada_web/config.yaml) currently subscribes to
+`PLC::MetaData` on domain 0 directly. It stays that way while the selector does not
+exist — the PoC works today — and switches to `PLC::SelectedMetaData` on the web
+domain when it does. Flagged in the file rather than changed early, because
+changing it first would break the working demo.
+
+*Two metrics become necessary, not optional:* outbound writes that hit
+`max_blocking_time`, and outbound samples lost to `KEEP_LAST` overwrite. Without
+them, a soft-side consumer problem is invisible until it shows up as unexplained
+field-side jitter.
+
+**Revisit if.** (a) A second component legitimately needs field-side data — then
+the question is whether it belongs on the field side entirely, not whether to add
+a second conduit. (b) Measurement shows the outbound send path intruding on the
+inbound read path, which points to `ASYNCHRONOUS_PUBLISH_MODE` with a
+`FlowController` rather than to reopening this. (c) The catalogue stops being
+startup-only and becomes a high-rate topic, which would make forwarding it a data-
+plane concern with its own rate policy.
+
+---
+
+### DD-029
+**The web side is `BEST_EFFORT`. The control channel is the one stated exception,
+and the tag catalogue is served on request rather than by durability.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Amends:** [DD-028](#dd-028) (QoS of the outbound topics) · **Affects:** DD-023, DD-027, OQ-25, OQ-26, SR-003, system-architecture §2, §4.3, §4.4, scada-select-architecture §3.4, §3.6, §3.8, §4.4, §6
+
+**Decision.** Everything scada-selector writes toward scada-web is
+`BEST_EFFORT` + `VOLATILE`:
+
+| Side | Topic | Reliability | Durability |
+|---|---|---|---|
+| Field | `PLC::IdValue` | `RELIABLE` | `VOLATILE` |
+| Field | `PLC::MetaData` | `RELIABLE` | `TRANSIENT_LOCAL` |
+| Web | `PLC::SelectedValue` | **`BEST_EFFORT`** | `VOLATILE` |
+| Web | `PLC::SelectedMetaData` | **`BEST_EFFORT`** | `VOLATILE` |
+| Web | `PLC::ValueRequest` | **`RELIABLE` + `KEEP_ALL`** — the exception | `VOLATILE` |
+
+**The exception is deliberate and narrow.** `ValueRequest` carries operator intent
+on an unkeyed command stream, where a lost `ADD` means a tag silently never turns
+on — the failure [DD-023](#dd-023) exists to prevent, and it does not self-heal
+because nothing repeats the command. It is also the low-volume, human-paced
+direction, so reliability there costs nothing that matters. Note the inbound
+reader being `RELIABLE` cannot block the selector's dispatch thread; only writers
+block.
+
+**Context.** The field side runs the process and the web side draws pictures of
+it. A display that misses a frame is not a fault, and paying for retransmission on
+that path buys nothing while adding a queue that can fill. Values are periodic, so
+the next sample supersedes the lost one before a human could have acted on it.
+
+**This makes the DD-028 boundary invariant structural rather than disciplinary.**
+DD-028 required `KEEP_LAST` on outbound writers so that soft-side congestion could
+not block the dispatch thread and stall field-side reception. A `BEST_EFFORT`
+writer has no send window to exhaust, no unacknowledged samples to retain, and no
+ACK to wait for — it cannot block on a slow consumer at all. `KEEP_LAST` stays as
+defense in depth and as documentation of intent, but the reliability kind is now
+what enforces the invariant. **The strongest argument for this decision is that it
+removes a failure mode rather than mitigating one.**
+
+**The catalogue cannot use durability, and this was verified rather than assumed.**
+`TRANSIENT_LOCAL` delivers historical samples to a late joiner **only if both the
+DataWriter and the DataReader are `RELIABLE`** (Connext 7.7.0; sources below). A
+late-joining `BEST_EFFORT` reader receives only samples written after matching
+completes — so DD-028's "the selector is the durability re-origin" does not
+survive contact with this decision.
+
+**So the catalogue is request-driven.** scada-web asks; the selector answers by
+rewriting instances out of its field-side reader cache:
+
+- The **request** travels on `ValueRequest` — the one channel that is still
+  `RELIABLE`, so the ask itself cannot be silently lost.
+- `Command_t::METADATA` with a **sentinel `uid` meaning "all"** bootstraps the whole
+  catalogue. A per-uid request cannot bootstrap: scada-web does not know the uid
+  list until it has the catalogue. This is a semantic addition to the existing
+  field, not an IDL change — no new field and no new type. The concrete value
+  (`-1` or `0`) is a contract detail for whoever implements it first.
+- **scada-web retries what it did not get.** It knows what it asked for, so a lost
+  reply is detectable and re-askable — the property a `BEST_EFFORT` reply needs to
+  be trustworthy, and one that durability would not have given it.
+
+**Alternatives.** (a) **Make `SelectedMetaData` a second reliable exception**
+(`RELIABLE` + `TRANSIENT_LOCAL`), which is RTI's own suggested split for
+"catalogue reliable, live stream best-effort" — rejected as the default because it
+reintroduces a blocking-capable writer on the boundary for a topic we can serve
+from a cache we already keep, but it is a **one-line change** if request/reply
+proves fiddly, and nothing else in this entry depends on it. (b) **Republish the
+catalogue from `on_publication_matched()`** — rejected: it is an application
+workaround rather than a documented mechanism, and it races. The callback means the
+*writer* matched, not that the remote reader is ready to receive, and with
+`BEST_EFFORT` a burst lost in that window is simply lost. (c) **Periodic
+re-announce of the whole catalogue** — rejected as the primary mechanism (it pays
+continuously for a startup problem) but reasonable as a configurable backstop,
+default off. (d) **`TopicQuery`** — the documented on-demand mechanism, and worth
+revisiting if request/reply over `ValueRequest` grows awkward.
+
+**Consequences.**
+
+*The selector holds no durable state again.* DD-028's exception is withdrawn: no
+`TRANSIENT_LOCAL` writer, so no durability re-origination and no "empty catalogue
+during a selector restart" window. The field-side `MetaData` reader cache remains
+load-bearing — `RELIABLE` + `TRANSIENT_LOCAL` + `read()` rather than `take()` — and
+is now the *only* place the catalogue lives inside the selector.
+
+*Lifecycle notifications become lossy, and this is the real cost.* A dispose on
+`SelectedValue` or `SelectedMetaData` can be dropped, and unlike a value it is
+**never repeated**, so scada-web could display a tag the plant no longer has,
+indefinitely. `BEST_EFFORT` turns "this tag went away" from an event into an
+inference. Required mitigation: **scada-web treats absence as staleness** — no
+sample for a tag within N expected periods marks it stale on the display, which
+ISA-101 practice wants regardless of transport. Cheap adjunct: send disposes
+two or three times, since they are rare and tiny. This does not weaken
+[scada-select-architecture](../scada_select/docs/scada-select-architecture.md)
+§3.4's rule that lifecycle events bypass the rate limit — it means that rule is no
+longer sufficient on its own.
+
+*Loss becomes invisible at the receiver unless we look.* The selector must count
+what it wrote; scada-web cannot infer what never arrived. Whether a `BEST_EFFORT`
+reader's `SampleLostStatus` reports useful gap information here is **unverified** —
+do not design on it without checking.
+
+*[OQ-25](questions.md#oq-25)'s recommendation is reinforced.* Its option A —
+latest-value reads, `KEEP_LAST depth=1`, `read()` never `take()`, change
+notification by push — is exactly what a `BEST_EFFORT` current-value stream
+supports. Take-once queue semantics were already a poor fit; they are now
+untenable, which removes the last reason to keep the WIS polling surface.
+
+*A late-joining scada-web waits up to one publish period* for each tag's first
+value, since `VOLATILE` + `BEST_EFFORT` means no history. Acceptable: values are
+periodic. The catalogue does **not** have this property, which is why it is
+request-driven.
+
+*Rate limiting is unaffected.* [DD-027](#dd-027) still does the volume reduction;
+`BEST_EFFORT` is about what happens to a sample in flight, not how many are sent.
+
+**Revisit if.** (a) The catalogue bootstrap proves unreliable in practice — take
+alternative (a) above, one QoS line. (b) A web-side consumer appears that genuinely
+needs every sample (a historian, [OQ-21](questions.md#oq-21)) — it should read the
+*field* side under its own reliability contract, or be a separate reliable route,
+rather than making the display path reliable for everyone. (c) Measurement shows
+best-effort loss on the web side is high enough to be visible to operators, which
+would indicate a network problem this decision is not the right fix for.
+
+**Sources.** Connext 7.7.0, via Connext AI:
+[Ensuring Information is Available to Late-Joining Applications](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/manuals/connext_dds_professional/users_manual/users_manual/Ensuring_Information_is_Available_to_Lat.htm) ·
+[Resending DDS Samples to Late-Joiners with the Durability QosPolicy](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/manuals/connext_dds_professional/users_manual/users_manual/Resending_DDS_Samples_to_Late_Joiners_wi.htm) ·
+[KB: Why does my DDS DataReader miss the first few samples?](https://community.rti.com/kb/why-does-my-dds-datareader-miss-first-few-samples) — "To enable this level of durability, you must also set the Reliability QoS policy kind to DDS_RELIABLE_RELIABILITY_QOS" ·
+[Basic QoS (Getting Started 7.7.0)](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/manuals/connext_dds_professional/getting_started_guide/cpp11/intro_qos.html) — "Late-joining DataReaders that also use reliability and Transient Local durability are automatically sent historical data"

@@ -114,6 +114,9 @@ def _build_value_request(command_t: dds.EnumType) -> dds.StructType:
             dds.Member("uid", dds.Int32Type()),
             dds.Member("name", dds.StringType(MAX_NAME_LENGTH)),
             dds.Member("command", command_t),
+            # period_ms: max publish rate for this uid, 0 = every sample.
+            # Applies to ADD; ignored for DELETE and METADATA.
+            dds.Member("period_ms", dds.Uint32Type()),
         ],
     )
 

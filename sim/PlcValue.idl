@@ -67,10 +67,20 @@ module PLC {
 		METADATA
 	};
 
+	// Sent by scada_web to scada_selector to select which values are
+	// republished on the selected-value topic, and how often.
+	//
+	// period_ms applies to ADD and sets the maximum publish rate for that uid:
+	// the selector forwards at most one sample per uid per period, discarding
+	// the rest. 0 means forward every sample. Re-sending ADD for a uid that is
+	// already enabled updates its rate. period_ms is ignored for DELETE and
+	// METADATA. Instance lifecycle notifications (dispose/unregister) are not
+	// rate limited.
 	struct ValueRequest {
-		UniqueId_t   uid;
-		Name_t       name;
-		Command_t    command;
+		UniqueId_t     uid;
+		Name_t         name;
+		Command_t      command;
+		unsigned long  period_ms;
 	};
 
 };
