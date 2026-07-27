@@ -1,8 +1,13 @@
 # scada_web configuration
 #
 # Declares DDS participants, topic subscriptions, and view mappings.
-# Types are wire-learned from DDS discovery — no local IDL needed here.
+# Types are loaded from an XML type library generated from IDL.
 # Pattern: references/act-sim-scope-infra/router/config/control-platform.yaml
+
+# --- XML type library ---
+# Generated with: rtiddsgen -convertToXml sim/PlcValue.idl -d sim/
+types:
+  xml: sim/PlcValue.xml
 
 # --- DDS participants ---
 # Each participant joins a domain and discovers endpoints on it.
@@ -11,15 +16,25 @@ participants:
     domain: 0  # same domain as sim/plc_publisher.py
 
 # --- Topic subscriptions ---
-# Topic names to subscribe to. The DynamicType is learned from the wire
-# (inline COMPLETE TypeObject in SEDP — no XML/IDL on this side).
+# Each topic specifies its fully-qualified type name from the XML library.
 topics:
   - name: "PLC::MetaData"
     participant: plc_domain
+    type: "PLC::MetaData"
     # MetaData is TRANSIENT_LOCAL — we'll receive all tags even as a late joiner.
+    #
+    # NOTE (DD-028): this subscription is on the HARD REAL-TIME side, which the
+    # boundary decision says scada_web must not touch. It stays as-is only because
+    # the selector does not exist yet and this keeps the PoC working. When the
+    # selector lands, this becomes:
+    #     - name: "PLC::SelectedMetaData"
+    #       participant: web_domain
+    # and scada_web loses its field-side participant entirely. Same for
+    # PLC::IdValue → PLC::SelectedValue below.
 
   - name: "PLC::IdValue"
     participant: plc_domain
+    type: "PLC::IdValue"
     # Periodic value stream. No filter — the selector (when built) will
     # pre-filter; for the PoC we receive everything.
 

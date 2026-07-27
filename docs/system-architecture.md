@@ -44,10 +44,18 @@ between them was drawn in the wrong place in v0.1 (see §6.2).
 value stream on both. **Pure selection: it does not touch the data model.**
 Samples that pass through are byte-for-byte the same type that went in.
 
-- Input: the subscription request topic (uid, enabled, rate), `IdValue`
-- Output: `IdValue` on a selected topic — **same type, different topic name**
-- State: per-uid `{enabled, period, last_emitted}`
-- Not its job: JSON, HTTP, view schemas, correlation, alarm logic
+It is also **the system boundary**: the only component with DDS endpoints on both
+the hard-real-time field side and the soft-real-time presentation side
+([DD-028](design-decisions.md#dd-028)). That is why `MetaData` passes through it —
+forwarded unmodified on its own topic, not merged into values.
+
+- Input: the subscription request topic (uid, enabled, rate), `IdValue`, `MetaData`
+- Output: `IdValue` on a selected topic and `MetaData` on a selected topic —
+  **same types, different topic names**
+- State: per-uid `{enabled, period, last_emitted}`, plus middleware caches that
+  re-originate `MetaData` durability across the boundary
+- Not its job: JSON, HTTP, view schemas, correlation, alarm logic, and — still —
+  any uid→metadata *map*; it forwards metadata without interpreting it
 
 Selection has **two dimensions**, and the rate axis matters as much as the id
 axis ([DD-027](design-decisions.md#dd-027)): it is what keeps the volume reaching
@@ -123,7 +131,7 @@ simpler and bounded.
 
 ```
   ┌──────────────────────────────────────── Level 0/1 ─────┐
-  │  scada-sim                                             │
+  │  scada-sim                              HARD REAL TIME │
   │    field_simulation.py   (Level 0 — process, no DDS)   │
   │    plc_publisher.py      (Level 1 — scan loop, DDS)    │
   └────────────────┬───────────────────────────────────────┘
@@ -134,20 +142,27 @@ simpler and bounded.
                    ▼
   ┌──────────────────────────────────────── Level 2 ───────┐
   │  scada-selector   ROLE 1: select by id AND rate        │
+  │                   + THE SYSTEM BOUNDARY (DD-028)       │
   │    • compiled types — absorbs the batched full stream  │
   │    • per-uid {enabled, period, last_emitted}           │
-  │    • republishes — same type, unmodified, downrated    │
-  └────────┬──────────────────────────────────▲────────────┘
+  │    • republishes — same types, unmodified, downrated   │
+  │    • forwards MetaData unmodified; re-originates its   │
+  │      TRANSIENT_LOCAL durability across the boundary    │
+  └════════┬═════════════════════════════════▲═════════════┘
+    ═══════╪══════ hard RT ─│─ soft RT ══════╪═══════════════  ← the boundary
            │                                  │
    PLC::SelectedValue                  subscription request
    (IdValue type, selected + downrated)  (uid · enabled · period_ms)
+   PLC::SelectedMetaData                     │
+   (MetaData type, TRANSIENT_LOCAL)          │
            │                                  │
-           │        ┌── PLC::MetaData ────────┼── (direct, TRANSIENT_LOCAL)
-           ▼        ▼                         │
+           ▼                                  │           SOFT REAL TIME
   ┌──────────────────────────────────────────┴────────────┐
   │  scada-web         ROLE 2: presentation                │
-  │    • readers on SelectedValue + MetaData; one writer   │
-  │      on ValueRequest — fixed, small entity set         │
+  │    • readers on SelectedValue + SelectedMetaData; one  │
+  │      writer on ValueRequest — fixed, small entity set  │
+  │    • NO field-side endpoint — nothing on the hard-RT   │
+  │      domain, not even discovery traffic                │
   │    • uid→metadata map: tag catalogue + view lookup     │
   │    • refcounts uid interest across clients             │
   │    • mapping engine: wire type → slim view schema      │
@@ -158,6 +173,14 @@ simpler and bounded.
   │  browser interface — mimic, trends, alarm banner       │
   └───────────────────────────────────────────────────────┘
 ```
+
+**Everything above the double line is hard real time; everything below is soft
+real time; the selector is the only component in both zones**
+([DD-028](design-decisions.md#dd-028)). The load-bearing consequence is directional:
+soft-side congestion must never back-pressure the hard side, which is why the
+selector's outbound writers are `KEEP_LAST` and never `KEEP_ALL` — see
+[scada-select-architecture.md](../scada_select/docs/scada-select-architecture.md)
+§3.8.
 
 ---
 
@@ -254,21 +277,60 @@ Consequences worth noting, because they are all simplifications:
   output topic `SelectedValue`, same registered type — which is what makes the
   Processor recommendation in §1a clean.
 
-### 4.3 `PLC::MetaData` — read directly by scada-web
+### 4.3 `PLC::MetaData` → `PLC::SelectedMetaData` — forwarded by scada-selector
 
-scada-web subscribes to `MetaData` itself rather than receiving it second-hand.
-`TRANSIENT_LOCAL` means a late-joining scada-web still gets every tag's
-description, so the uid→metadata map is populated regardless of start order.
+> **Changed by [DD-028](design-decisions.md#dd-028).** This section previously read
+> "read directly by scada-web". Metadata now crosses the boundary through the
+> selector so that the selector can be the *only* thing that does. The **ownership**
+> argument below is unchanged — scada-web still holds the map and does all the
+> correlation.
 
-That map serves two purposes at once, which is the main argument for this
-placement (§6.2): the **tag catalogue** scada-web needs anyway for name-based
-lookup ([OQ-13](questions.md#oq-13)), and **view enrichment** for the mapping
-engine.
+The selector reads `MetaData` on the field side and republishes it unmodified as
+`PLC::SelectedMetaData` on the web side. Type in = type out, exactly as for values;
+no merge into `SelectedValue` (that was DD-021, withdrawn by DD-024 and not
+reopened).
+
+| | Field side | Web side |
+|---|---|---|
+| Topic | `PLC::MetaData` | `PLC::SelectedMetaData` |
+| Type | `MetaData` | `MetaData` — same |
+| QoS | `RELIABLE` · `TRANSIENT_LOCAL` · `KEEP_LAST 1` | mirrored |
+| Written by | scada-sim, once per tag at startup | scada-selector, on receipt or on `METADATA` request |
+
+Three properties worth stating because they are easy to get wrong:
+
+- **The whole catalogue crosses, unfiltered by the selection table.** scada-web's
+  map *is* the tag catalogue, needed to answer "what tags exist" and to resolve a
+  name to a uid ([OQ-13](questions.md#oq-13)) *before* anything is selected.
+  Filtering it would deadlock discovery: a client cannot ask for a tag it cannot
+  see. The volume argument for filtering does not apply — `MetaData` is written once
+  per tag.
+- **Durability is re-originated, not merely relayed.** The forwarded topic is
+  `TRANSIENT_LOCAL` too, so a late-joining scada-web still gets every tag's
+  description regardless of start order. The cost is that a selector restart
+  briefly empties the catalogue for a late joiner, since `TRANSIENT_LOCAL` dies
+  with the writer and is repopulated from the sim on the next startup.
+- **`Command_t::METADATA` now has an owner.** The selector can service a re-publish
+  request by rewriting one instance from its own reader cache — which under the
+  previous arrangement nothing could do.
+
+The map still serves two purposes at once, which was always the main argument for
+scada-web owning it (§6.2): the **tag catalogue** for name-based lookup, and **view
+enrichment** for the mapping engine. Where the bytes come from does not change who
+interprets them.
+
+`scada_web/config.yaml` still subscribes to `PLC::MetaData` directly today, because
+the selector does not exist yet and the PoC works. It switches to
+`PLC::SelectedMetaData` when the selector lands.
 
 ### 4.4 Unchanged
 
 `PLC::MetaData` and `PLC::IdValue` keep the QoS the sim already uses:
 `TRANSIENT_LOCAL` for MetaData, `VOLATILE` for IdValue because the process moves on.
+The selector mirrors each on its outbound side, with one deliberate exception:
+outbound history is always `KEEP_LAST`, never `KEEP_ALL`, so that a slow web-side
+consumer cannot block the selector's dispatch thread and stall field-side reception
+([DD-028](design-decisions.md#dd-028)).
 
 ---
 
@@ -358,8 +420,11 @@ work, and it makes the model *fatter*, while Role 2's job is to make it *slimmer
 Fattening in one component so the next can slim it is incoherent, and it put
 model concerns in a component whose role is selection.
 
-**Corrected placement:** scada-web subscribes to `MetaData` directly and holds the
-uid→metadata map. See [DD-024](design-decisions.md#dd-024).
+**Corrected placement:** scada-web holds the uid→metadata map. See
+[DD-024](design-decisions.md#dd-024). It receives `MetaData` *through the selector*
+rather than directly ([DD-028](design-decisions.md#dd-028), §4.3) — a transport
+change that leaves this placement argument untouched, since it is about who
+interprets metadata, not about which hop delivers it.
 
 The decisive argument is that **scada-web needs this map anyway.** It is the tag
 catalogue required for name-based lookup ([OQ-13](questions.md#oq-13)). Under the
@@ -399,8 +464,11 @@ edited.
 | Process simulation | — | scada-sim L0 | — |
 | Tag scan and publish | — | scada-sim L1 | — |
 | Which tags flow at all | 1 | **scada-selector** | scada-web (would mean a reader per client) |
+| Hard-RT ↔ soft-RT boundary | 1 | **scada-selector** | Anyone else — a second conduit is not a boundary ([DD-028](design-decisions.md#dd-028)) |
+| Metadata *transport* across the boundary | 1 | **scada-selector** | scada-web reading the field topic directly (DD-028) |
+| Isolating the field side from soft-RT backpressure | 1 | **scada-selector** | — `KEEP_LAST` outbound is what enforces it |
 | Data model changes of any kind | 2 | **scada-web** | scada-selector — Role 1 is selection only |
-| uid→metadata lookup | 2 | **scada-web** | scada-selector (§6.2, corrected in DD-024) |
+| uid→metadata lookup and the map itself | 2 | **scada-web** | scada-selector (§6.2, DD-024 — unchanged by DD-028, which moved transport only) |
 | Wire type → slim view schema | 2 | **scada-web** | — |
 | DynamicData ⇄ JSON | 2 | **scada-web** | — |
 | Per-client interest refcount | 2 | **scada-web** | scada-selector (it sees one aggregate consumer) |
@@ -462,15 +530,19 @@ and tested against real data immediately.
 | Step | Work | Verifiable by |
 |---|---|---|
 | 1 | `rtiddsgen` C++ types from `PlcValue.idl`; topic name for `SelectedValue` (§4.2) | Compiles; resolves [OQ-12](questions.md#oq-12) |
-| 2 | **scada-selector**: enable set, republish. No model changes | `rtiddsspy` on `SelectedValue` while driving `ValueRequest` by hand |
+| 2 | **scada-selector**: enable set, republish, **metadata passthrough**. No model changes | `rtiddsspy` on `SelectedValue` and `SelectedMetaData` while driving `ValueRequest` by hand |
+| 2a | **scada-selector**: the boundary invariant — stall a web-side subscriber, confirm field-side reception is unaffected | Measured, not assumed ([DD-028](design-decisions.md#dd-028)) |
 | 3 | **scada-web** engine (TRD §12 P1) — union→scalar projection first | Mapping CLI over JSON fixtures |
-| 4 | **scada-web** DDS + web surface, incl. `MetaData` map and `<lookup>` | End-to-end to a test client |
+| 4 | **scada-web** DDS + web surface, incl. `MetaData` map and `<lookup>`; repoint config at `SelectedMetaData` | End-to-end to a test client |
 | 5 | **browser**: tag table + trend (mimic is separate — [OQ-16](questions.md#oq-16)) | The demo |
 
 Step 2 is independently demonstrable with no web tier at all, which makes it the
 cheapest real progress available — and it shrank further under
 [DD-024](design-decisions.md#dd-024), since the selector no longer caches or
-merges metadata. Step 3 needs no DDS and no network. The two can proceed in
+merges metadata. Adding metadata passthrough under
+[DD-028](design-decisions.md#dd-028) grows it back slightly, but not by much: it is
+a second reader, a second writer, and `read()` instead of `take()`, with no
+correlation and no map. Step 3 needs no DDS and no network. The two can proceed in
 parallel.
 
 Note that step 1 is now a build step rather than a design decision: there is no

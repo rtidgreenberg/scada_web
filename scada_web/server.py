@@ -62,28 +62,26 @@ def create_app(config: ScadaWebConfig) -> FastAPI:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "ready_topics": _gateway.ready_topics if _gateway else []}
+    return {"status": "ok", "topics": _gateway.topics if _gateway else []}
 
 
 @app.get("/api/v1/topics")
 async def list_topics():
     if not _gateway:
         return JSONResponse({"error": "not started"}, status_code=503)
-    return {
-        "ready": _gateway.ready_topics,
-        "pending": _gateway.pending_topics,
-    }
+    return {"topics": _gateway.topics}
 
 
 @app.get("/api/v1/topics/{topic_name}/type")
 async def get_topic_type(topic_name: str):
-    """Return the wire-learned type structure for a topic."""
+    """Return the type structure for a topic (loaded from XML library)."""
     if not _gateway:
         return JSONResponse({"error": "not started"}, status_code=503)
-    if not _gateway.resolver.has_type(topic_name):
-        return JSONResponse({"error": f"type not yet learned for '{topic_name}'"},
+    try:
+        dtype = _gateway.get_type(topic_name)
+    except Exception:
+        return JSONResponse({"error": f"unknown type '{topic_name}'"},
                             status_code=404)
-    dtype = _gateway.resolver.get_type(topic_name)
     members = []
     for i in range(dtype.member_count):
         m = dtype.member(i)

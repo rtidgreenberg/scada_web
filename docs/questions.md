@@ -63,14 +63,14 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | ID | Question | Status | Priority | Owner | Blocks |
 |---|---|---|---|---|---|
 | [OQ-23](#oq-23) | Standalone, RS Adapter + Processor, or hybrid? | Role 1 ANSWERED → [DD-026](design-decisions.md#dd-026); Role 2 READY | MEDIUM | DG | scada-web structure |
-| [OQ-12](#oq-12) | Shared union output topic, or one per client? | OPEN | BLOCKING | DG | scada-selector design, step 1 |
+| [OQ-12](#oq-12) | Shared union output topic, or one per client? | DECIDED | BLOCKING | DG | scada-selector design, step 1 |
 | [OQ-11](#oq-11) | What must the PoC demonstrate to count as a success? | OPEN | BLOCKING | DG | Judging the outcome |
 | [OQ-15](#oq-15) | What language and DDS API for scada-selector? | SUPERSEDED | — | — | → [OQ-23](#oq-23) |
 | [OQ-6](#oq-6) | Bespoke expression grammar or restricted CEL? | OPEN | HIGH | — | mapping-dsl §4/§5, P1 |
 | [OQ-19](#oq-19) | Union comparison and promotion rules? | OPEN | HIGH | — | OQ-6 spike, OQ-14 |
 | [OQ-24](#oq-24) | `ValueRequest`: deltas or full desired state? | READY | HIGH | — | DD-023, SR-003, OQ-17 |
 | [OQ-25](#oq-25) | Per-client read semantics on a shared reader — keep WIS polling at all? | READY | HIGH | DG | FR-REST-003, read path |
-| [OQ-14](#oq-14) | Where does alarm limit evaluation and state live? | OPEN | HIGH | — | Browser + filter scope |
+| [OQ-14](#oq-14) | Where does alarm limit evaluation and state live? | DECIDED | HIGH | DG | Browser + filter scope |
 | [OQ-13](#oq-13) | Is name-based tag lookup required, or is `uid` enough? | OPEN | MEDIUM | — | `ValueRequest` handling |
 | [OQ-16](#oq-16) | What stack for the browser interface? | OPEN | MEDIUM | — | Browser work, step 5 |
 | [OQ-17](#oq-17) | Should `ValueRequest` be keyed on `uid`? | OPEN | MEDIUM | — | IDL revision window |
@@ -78,8 +78,9 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-21](#oq-21) | Are trends and a historian in scope? | OPEN | MEDIUM | DG | Browser scope |
 | [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | READY | MEDIUM | DG | Web surface design |
 | [OQ-1](#oq-1) | RTI licensing/support position on reimplementing WIS | OPEN | MEDIUM | DG | Productization, not the PoC |
+| [OQ-26](#oq-26) | One DDS domain across the RT boundary, or two? | OPEN | MEDIUM | DG | Selector deployment, OQ-22 |
 | [OQ-18](#oq-18) | Should `ValueRequest` carry a `LIFESPAN`? | OPEN | LOW | — | Nothing; cheap later |
-| [OQ-22](#oq-22) | Enforce Purdue zones with DDS Security, or logically only? | OPEN | LOW | — | Deployment claims |
+| [OQ-22](#oq-22) | Enforce Purdue zones with DDS Security, or logically only? | OPEN — now structurally reachable via [DD-028](design-decisions.md#dd-028) | LOW | — | Deployment claims |
 | [OQ-4](#oq-4) | Is cross-topic join in the PoC? | ANSWERED | — | — | → DD-021 |
 | [OQ-5](#oq-5) | Which HTTP stack? | READY | LOW | — | P3 |
 | [OQ-2](#oq-2) | Must we mechanically ingest Routing Service assignment configs? | DEFERRED | LOW | — | FR-XF-053 scope |
@@ -102,6 +103,16 @@ anywhere.** It also **answered OQ-20**. Separately,
 [DD-024](design-decisions.md#dd-024) moved metadata correlation from the selector
 to scada-web, so the selector is now pure selection — any text below describing it
 as enriching or caching metadata is superseded.
+
+**Scope note (2026-07-27, fourth revision):** scada-selector is now the **sole
+conduit between the hard-real-time field side and the soft-real-time presentation
+side**, and `MetaData` is forwarded *through* it rather than read directly by
+scada-web ([DD-028](design-decisions.md#dd-028)). This amends DD-024's transport
+path only — metadata *ownership* stays with scada-web. It raised **OQ-26** and made
+**OQ-22** structurally reachable: its recommended option (b), a domain per level
+with a deliberate bridge, was impossible while scada-web held a field-side
+endpoint. Any text below implying scada-web subscribes to `PLC::MetaData` directly
+is superseded.
 
 ---
 
@@ -453,9 +464,12 @@ it should be a choice.
 **Does scada-selector publish one shared output topic carrying the union of all
 clients' requested uids, or one topic/partition per client?**
 
-- **Status:** OPEN · **Priority:** BLOCKING · **Owner:** DG
+- **Status:** DECIDED · **Priority:** BLOCKING · **Owner:** DG
 - **Blocks:** scada-selector design; `SelectedValue` definition (build step 1)
 - **Raised:** 2026-07-27 ([system-architecture.md](system-architecture.md) §5)
+- **Decision:** 2026-07-27 — **Option A (one shared output topic).** Initial POC
+  targets a single client, so the question is moot for now. scada-web will implement
+  per-client demux in the future if multiple clients are needed.
 
 **Context.** [DD-020](design-decisions.md#dd-020) moves selection into
 scada-selector, but does not say what granularity it publishes at. This is the
@@ -485,9 +499,11 @@ scada-web's demux volume without per-client entities.
 ### OQ-13
 **Is name-based tag lookup required, or is `uid` sufficient?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** —
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** `ValueRequest` handling in scada-selector; browser tag-selection UX
 - **Raised:** 2026-07-27
+- **Decision:** 2026-07-27 — `uid`-only for POC. Name-based lookup deferred to
+  future implementation roadmap.
 
 **Context.** `ValueRequest` carries both `uid` and `name`, but `ADD`/`DELETE` only
 need `uid`. So `name` is either (a) redundant, kept for readable logging, or (b) an
@@ -511,9 +527,11 @@ logging. Confirm before building either side.
 ### OQ-14
 **Where does alarm limit evaluation and alarm state live?**
 
-- **Status:** OPEN · **Priority:** HIGH · **Owner:** —
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** scada-selector scope; browser scope; mapping engine `<compute>` usage
 - **Raised:** 2026-07-27 ([system-architecture.md](system-architecture.md) §7)
+- **Decision:** 2026-07-27 — Out of scope for POC. Alarm/limit evaluation is future
+  roadmap for scada-selector.
 
 **Context.** `Limits_t` carries six thresholds (red/yellow/green high and low) plus
 an `active` flag. Something must compare values against them. Three candidate
@@ -827,6 +845,17 @@ the cheap intermediate step if separation ever needs to be more than a claim,
 since domain separation costs almost nothing and makes the conduit an actual
 component rather than an assumption. (c) is already [Post-PoC] per NFR-TEST-007.
 
+> **Update (2026-07-27, [DD-028](design-decisions.md#dd-028)).** Option (b) is now
+> *reachable*, which it was not when this was written. The blocker was never the
+> domain IDs — it was that scada-web read `PLC::MetaData` directly and therefore
+> held a field-side endpoint, so no bridge could be the only conduit. Metadata now
+> passes through scada-selector, which makes the conduit "an actual component
+> rather than an assumption" in the exact sense this entry asked for. What remains
+> open here is narrower: whether the PoC *runs* two domains
+> ([OQ-26](#oq-26)) and whether Security Plugins are involved (c). The
+> zone-boundary claim itself is no longer only logical — it is enforced by
+> topology.
+
 ---
 
 ### OQ-23
@@ -1013,6 +1042,49 @@ they are meaningless without a per-client reader.
 comparison. The surviving claim is that the reader cache is a queryable,
 instance-indexed store which a standalone service keeps and an RS Adapter throws
 away. That holds under option A here just as much as under B.
+
+---
+
+### OQ-26
+**Does the PoC run one DDS domain across the real-time boundary, or two?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Nothing in the code — scada-selector takes `--field-domain` and
+  `--web-domain` regardless. Blocks the *deployment* story and part of
+  [OQ-22](#oq-22)
+- **Raised:** 2026-07-27, by [DD-028](design-decisions.md#dd-028)
+
+**Context.** DD-028 makes scada-selector the sole conduit between the hard-real-time
+field side and the soft-real-time presentation side. The boundary is enforced by
+**topology** — only the selector has endpoints on both sides — which works within a
+single domain. Running a domain per side adds enforcement by **configuration**: a
+misconfigured scada-web then *cannot* reach field topics, rather than merely not
+being pointed at them.
+
+The selector is built for either. Two participants, two domain flags, one WaitSet
+(conditions from entities on different participants may share one), and topic names
+that stay distinct across the boundary so a single-domain deployment works
+unchanged.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **One domain** (`--field-domain == --web-domain`) | Simplest; matches the sim and the current `scada_web/config.yaml`. The boundary is real but rests on nobody creating a field-side reader in scada-web. One participant. |
+| B | **Two domains**, selector bridges | Enforced by configuration, not just discipline. Field-side discovery contains exactly one subscriber. Costs a second participant with its own discovery and receive threads, and a second QoS block to keep consistent. |
+| C | **One domain, two partitions** | Cheaper than B, and partitions are a *matching* filter rather than an isolation boundary — a participant that names the partition still joins. Weaker than B for the zone claim, more machinery than A. |
+
+**Recommendation: A for the PoC, with B as the documented deployment shape.** The
+work that makes B possible is already done — it is the DD-028 topology plus two
+flags — so B costs nothing to *reach* later and the PoC gains nothing from paying
+for a second participant now. What matters is that the claim be stated precisely:
+under A, zone separation is enforced by topology and one config file; under B, by
+the middleware.
+
+**Decide when** a demo needs to make a security or zoning claim to an outside
+audience, or when the sim moves to separate hardware from the web tier — either
+makes B the honest default. Discard C unless partitions are already being used for
+something else.
 
 ---
 

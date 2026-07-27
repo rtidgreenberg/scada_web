@@ -1,14 +1,19 @@
 """DDS gateway — manages participants, topics, and readers from YAML config.
 
 Orchestrates the lifecycle:
-  1. Create DomainParticipants from config
-  2. Start DiscoveryMonitor to learn types from wire
-  3. Once a topic's type is learned, create the DynamicData DataReader
+  1. Load types from XML (generated from IDL via rtiddsgen -convertToXml)
+  2. Create DomainParticipants from config
+  3. Create Topics + DataReaders immediately (types are known, no discovery wait)
   4. Optionally create a DataWriter for ValueRequest (back-channel to selector)
   5. Forward received samples to the web layer via callbacks
 
 This is the Level 2 (SCADA master) DDS boundary — it owns all DDS entities
 and isolates the web server from DDS API details.
+
+Types are loaded from XML at startup — NOT learned from wire discovery.
+In SCADA the data model is commissioned infrastructure; it doesn't change at
+runtime. This is simpler, faster to start, and doesn't depend on publishers
+being up first.
 """
 
 from __future__ import annotations
@@ -20,12 +25,11 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 import rti.connextdds as dds
 
-from .config import ScadaWebConfig, TopicConfig, FilterConfig
-from .discovery import DiscoveryMonitor, TypeResolver
+from .config import ScadaWebConfig, TopicConfig
 
 logger = logging.getLogger(__name__)
 
-# Callback type: (topic_name, sample_dict, sample_info) → None
+# Callback type: (topic_name, sample_data, sample_info) → None
 SampleCallback = Callable[[str, Any, Any], None]
 
 
@@ -35,16 +39,15 @@ class TopicRuntime:
     config: TopicConfig
     topic: dds.DynamicData.Topic | None = None
     reader: dds.DynamicData.DataReader | None = None
-    ready: bool = False
 
 
 class DdsGateway:
-    """Manages DDS entities driven by YAML config and wire-learned types.
+    """Manages DDS entities driven by YAML config and XML-loaded types.
 
     Lifecycle:
         gw = DdsGateway(config)
         gw.on_sample = my_callback
-        await gw.start()   # creates participants, starts discovery, creates readers
+        await gw.start()   # loads types, creates participants + readers
         ...
         await gw.stop()    # tears down everything
     """
@@ -52,9 +55,7 @@ class DdsGateway:
     def __init__(self, config: ScadaWebConfig):
         self._config = config
         self._participants: dict[str, dds.DomainParticipant] = {}
-        self._monitors: list[DiscoveryMonitor] = []
-        self._monitor_tasks: list[asyncio.Task] = []
-        self._resolver = TypeResolver()
+        self._provider: dds.QosProvider | None = None
         self._topics: dict[str, TopicRuntime] = {}
         self._poll_task: asyncio.Task | None = None
         self._running = False
@@ -65,10 +66,10 @@ class DdsGateway:
     # ─── Lifecycle ───────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        """Create DDS participants, start discovery, begin reading."""
+        """Load XML types, create participants and readers, begin reading."""
+        self._load_types()
         self._create_participants()
-        self._init_topic_runtimes()
-        self._start_discovery()
+        self._create_readers()
         self._running = True
         self._poll_task = asyncio.create_task(self._read_loop())
         logger.info("dds_gateway_started participants=%d topics=%d",
@@ -77,24 +78,33 @@ class DdsGateway:
     async def stop(self) -> None:
         """Tear down all DDS entities."""
         self._running = False
-        for m in self._monitors:
-            m.stop()
-        for t in self._monitor_tasks:
-            t.cancel()
         if self._poll_task:
             self._poll_task.cancel()
             try:
                 await self._poll_task
             except asyncio.CancelledError:
                 pass
-        # Close participants (closes all child entities)
         for dp in self._participants.values():
             dp.close()
         self._participants.clear()
         self._topics.clear()
         logger.info("dds_gateway_stopped")
 
-    # ─── Internal: participant + topic setup ─────────────────────────────
+    # ─── Internal: type loading ──────────────────────────────────────────
+
+    def _load_types(self) -> None:
+        """Load DynamicTypes from the XML type library."""
+        xml_path = self._config.types_xml
+        if not xml_path:
+            raise RuntimeError("config must specify types.xml path")
+        self._provider = dds.QosProvider(xml_path)
+        logger.info("types_loaded xml=%s", xml_path)
+
+    def _get_type(self, type_name: str) -> dds.DynamicType:
+        """Look up a type from the loaded XML library."""
+        return self._provider.type(type_name)
+
+    # ─── Internal: participant + reader setup ────────────────────────────
 
     def _create_participants(self) -> None:
         for pc in self._config.participants:
@@ -103,73 +113,35 @@ class DdsGateway:
             self._participants[pc.name] = dp
             logger.info("participant_created name=%s domain=%d", pc.name, pc.domain)
 
-    def _init_topic_runtimes(self) -> None:
+    def _create_readers(self) -> None:
+        """Create Topic + DataReader for each configured topic immediately."""
         for tc in self._config.topics:
-            self._topics[tc.name] = TopicRuntime(config=tc)
+            dp = self._participants[tc.participant]
+            dtype = self._get_type(tc.type_name)
 
-    def _start_discovery(self) -> None:
-        """Start a DiscoveryMonitor per participant, filtered to configured topics."""
-        # Build the set of topics each participant needs to learn
-        participant_topics: dict[str, set[str]] = {}
-        for tc in self._config.topics:
-            participant_topics.setdefault(tc.participant, set()).add(tc.name)
+            topic = dds.DynamicData.Topic(dp, tc.name, dtype)
+            subscriber = dds.Subscriber(dp)
 
-        for pname, topic_names in participant_topics.items():
-            dp = self._participants[pname]
-            monitor = DiscoveryMonitor(
-                participant=dp,
-                resolver=self._resolver,
-                on_type_learned=self._on_type_learned,
-                topics_of_interest=topic_names,
-            )
-            self._monitors.append(monitor)
-            task = asyncio.create_task(monitor.run())
-            self._monitor_tasks.append(task)
+            if tc.filter:
+                cft = dds.DynamicData.ContentFilteredTopic(
+                    topic,
+                    f"{tc.name}_filtered",
+                    dds.Filter(tc.filter.expression, tc.filter.parameters),
+                )
+                reader = dds.DynamicData.DataReader(subscriber, cft)
+            else:
+                reader = dds.DynamicData.DataReader(subscriber, topic)
 
-    def _on_type_learned(self, topic_name: str, dtype: dds.DynamicType) -> None:
-        """Callback from discovery — create the reader for this topic now."""
-        if topic_name not in self._topics:
-            return
-        runtime = self._topics[topic_name]
-        if runtime.ready:
-            return
-        try:
-            self._create_reader(runtime, dtype)
-            runtime.ready = True
-            logger.info("topic_ready name=%s type=%s", topic_name, dtype.name)
-        except Exception:
-            logger.exception("reader_creation_failed topic=%s", topic_name)
-
-    def _create_reader(self, runtime: TopicRuntime, dtype: dds.DynamicType) -> None:
-        """Create Topic + DataReader (+ optional CFT) from wire-learned type."""
-        tc = runtime.config
-        dp = self._participants[tc.participant]
-
-        topic = dds.DynamicData.Topic(dp, tc.name, dtype)
-        runtime.topic = topic
-
-        subscriber = dds.Subscriber(dp)
-
-        # Content filter from config
-        if tc.filter:
-            cft = dds.DynamicData.ContentFilteredTopic(
-                topic,
-                f"{tc.name}_filtered",
-                dds.Filter(tc.filter.expression, tc.filter.parameters),
-            )
-            reader = dds.DynamicData.DataReader(subscriber, cft)
-        else:
-            reader = dds.DynamicData.DataReader(subscriber, topic)
-
-        runtime.reader = reader
+            self._topics[tc.name] = TopicRuntime(config=tc, topic=topic, reader=reader)
+            logger.info("reader_created topic=%s type=%s", tc.name, dtype.name)
 
     # ─── Internal: read loop ─────────────────────────────────────────────
 
     async def _read_loop(self) -> None:
-        """Periodically take samples from all ready readers."""
+        """Periodically take samples from all readers."""
         while self._running:
             for topic_name, runtime in self._topics.items():
-                if not runtime.ready or runtime.reader is None:
+                if runtime.reader is None:
                     continue
                 try:
                     samples = runtime.reader.take()
@@ -185,15 +157,10 @@ class DdsGateway:
     # ─── Public query ────────────────────────────────────────────────────
 
     @property
-    def ready_topics(self) -> list[str]:
-        """Topics whose types have been learned and readers are active."""
-        return [name for name, rt in self._topics.items() if rt.ready]
+    def topics(self) -> list[str]:
+        """All configured topic names."""
+        return list(self._topics.keys())
 
-    @property
-    def pending_topics(self) -> list[str]:
-        """Topics still waiting for type discovery."""
-        return [name for name, rt in self._topics.items() if not rt.ready]
-
-    @property
-    def resolver(self) -> TypeResolver:
-        return self._resolver
+    def get_type(self, type_name: str) -> dds.DynamicType:
+        """Public access to loaded types (for the REST type endpoint)."""
+        return self._get_type(type_name)

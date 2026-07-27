@@ -1,6 +1,6 @@
 # scada_web — Python Gateway Architecture
 
-**Status:** Draft v0.1
+**Status:** Draft v0.2
 **Date:** 2026-07-27
 
 The `scada_web/` package is the Level 2 (supervisory) web gateway. It bridges
@@ -16,7 +16,7 @@ type.
 Level 0/1 (sim/)              Level 2 (scada_web/)           Browser
 ┌──────────────────┐          ┌──────────────────────┐       ┌──────────┐
 │ field_simulation │          │  config.yaml         │       │  HMI     │
-│ plc_publisher    │──DDS───▶│  discovery → gateway │──HTTP─▶│  trends  │
+│ plc_publisher    │──DDS───▶│  PlcValue.xml→gateway│──HTTP─▶│  trends  │
 │ plc_types        │          │  interest → server   │◀─WS───│  alarms  │
 └──────────────────┘          └──────────────────────┘       └──────────┘
 ```
@@ -34,7 +34,6 @@ scada_web/
 ├── __main__.py       Entry point: python -m scada_web --config ...
 ├── config.py         YAML config loader + validation
 ├── config.yaml       Default configuration (wired to sim/)
-├── discovery.py      Wire type learning from DDS builtin discovery
 ├── gateway.py        DDS entity lifecycle (participants, readers)
 ├── interest.py       Per-client uid refcounting
 └── server.py         FastAPI REST + WebSocket surface
@@ -45,10 +44,7 @@ scada_web/
 ```
 config.py
    │
-   ├──▶ discovery.py ──▶ (rti.connextdds)
-   │        │
-   │        ▼
-   └──▶ gateway.py ────▶ (rti.connextdds)
+   └──▶ gateway.py ────▶ (rti.connextdds + QosProvider for XML types)
             │
             ▼
         server.py ──────▶ (fastapi, uvicorn)
@@ -64,24 +60,25 @@ unit-tested without the Connext runtime.
 
 ## 3. Key Design Decisions
 
-### 3.1 No Local IDL — Types Learned from Wire
+### 3.1 XML Type Library — Types Loaded at Startup
 
-The gateway carries **no** local type definitions (no IDL, no XML type library,
-no generated code). Instead, it learns DynamicTypes at runtime from DDS builtin
-discovery — the COMPLETE TypeObject riding inline in the SEDP endpoint
-announcement.
+The gateway loads DynamicTypes from an XML type library at startup via
+`dds.QosProvider`. The XML is generated from the canonical IDL source:
 
-This is the same pattern proven in
-[`references/act-sim-scope-infra/spikes/type_discovery/`](../references/act-sim-scope-infra/spikes/type_discovery/type_discovery_spike.py)
-and productionized in the C++ router's `DiscoveryDispatcher` + `TypeResolver`.
+```bash
+rtiddsgen -convertToXml sim/PlcValue.idl -d sim/
+```
 
-**Consequence:** the gateway can subscribe to _any_ topic published by _any_
-application on the domain, without recompilation or restart — just add the topic
-name to `config.yaml`.
+In SCADA, the data model is **commissioned infrastructure** — it is defined
+once during system engineering and does not change at runtime. This makes
+wire-learned types (the pattern from `references/act-sim-scope-infra/`) 
+unnecessarily complex for this use case. That pattern suits generic DDS tools
+(routers, scopes) that must handle arbitrary types; a SCADA master knows
+exactly what types it will see.
 
-**Limitation:** only works for types small enough to ride inline in SEDP (the
-norm for SCADA tag types; large types would need TypeLookup, which the Python
-binding does not expose as of Connext 7.7).
+**Consequence:** the gateway creates all DDS readers immediately at startup —
+no dependency on publishers being up first. Simpler code, faster startup,
+easier to test.
 
 ### 3.2 YAML Configuration
 
@@ -90,13 +87,17 @@ in a single YAML file. The schema is modeled after the act-sim-scope-infra
 router config:
 
 ```yaml
+types:
+  xml: sim/PlcValue.xml        # XML type library path
+
 participants:
   <name>:
     domain: <int>
 
 topics:
-  - name: <TopicName>          # just the name — type from wire
+  - name: <TopicName>
     participant: <name>
+    type: "PLC::MetaData"      # fully-qualified type from XML
     filter:                    # optional content filter
       expression: "uid = %0"
       parameters: ["5"]
@@ -113,7 +114,6 @@ views:
 ### 3.3 Async Event Loop (not thread-per-connection)
 
 The gateway uses Python `asyncio` throughout:
-- Discovery polling: `DiscoveryMonitor.run()` is an async task
 - Sample reading: `DdsGateway._read_loop()` polls readers on a 50ms cadence
 - WebSocket push: fire-and-forget `asyncio.create_task` per client per sample
 
@@ -140,11 +140,9 @@ The `InterestManager` implements all four system requirements from
 
 ```
 1. Load config.yaml
-2. Create DomainParticipants (per config)
-3. Start DiscoveryMonitor per participant
-   └─ polls publication_reader + subscription_reader
-4. On TypeResolved(topic_name, DynamicType):
-   └─ Create Topic + DataReader (+ optional CFT)
+2. Load XML types via QosProvider(types.xml)
+3. Create DomainParticipants (per config)
+4. Create Topic + DataReader for each configured topic immediately
 5. Start read loop (50ms poll)
 6. Start FastAPI/uvicorn
 ```
@@ -220,8 +218,9 @@ List of topic subscriptions.
 
 | Key | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | DDS topic name (type learned from wire) |
+| `name` | string | yes | DDS topic name |
 | `participant` | string | yes | References a participant name |
+| `type` | string | yes | Fully-qualified type name from XML |
 | `qos_profile` | string | no | QoS profile name |
 | `filter.expression` | string | no | Content filter SQL expression |
 | `filter.parameters` | list | no | Filter parameter values |
@@ -257,7 +256,7 @@ List of view projections (wire → JSON).
 |---|---|---|
 | GET | `/health` | Liveness + ready topics |
 | GET | `/api/v1/topics` | List ready and pending topics |
-| GET | `/api/v1/topics/{name}/type` | Wire-learned type schema |
+| GET | `/api/v1/topics/{name}/type` | Type schema from XML library |
 
 ### WebSocket (`/ws`)
 
@@ -278,19 +277,17 @@ Server → Client pushes:
 
 ## 8. Relationship to act-sim-scope-infra
 
-The submodule at `references/act-sim-scope-infra/` provides the proven patterns
-this gateway is built on:
+The submodule at `references/act-sim-scope-infra/` provides proven patterns:
 
 | This module | Derived from |
 |---|---|
-| `discovery.py` (TypeResolver + DiscoveryMonitor) | `router/src/core/TypeResolver.hpp` + `DiscoveryDispatcher.cxx` |
 | `gateway.py` (DdsGateway) | `router/src/core/DynamicRouteFactory.cxx` + `RouteEntityFactory.hpp` |
 | `config.py` (YAML schema) | `router/config/control-platform.yaml` + `RouteConfigParser.cxx` |
-| Type learning approach | `spikes/type_discovery/type_discovery_spike.py` (Python proof) |
 
-The C++ router routes DDS-to-DDS across WAN; scada_web routes DDS-to-Web. Both
-share the same "YAML declares topic names; types learned from wire; entities
-created dynamically" architecture.
+The C++ router uses wire-learned types because it is a generic DDS tool that
+routes arbitrary data. scada_web uses XML-loaded types because it is a
+purpose-built SCADA master that knows its data model at commission time.
+Both share YAML-driven topology declaration.
 
 ---
 

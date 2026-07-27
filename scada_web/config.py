@@ -1,8 +1,11 @@
 """YAML configuration loader for scada_web.
 
-Declares DDS participants, topic subscriptions, QoS, and mapping views
-in a single YAML file — no IDL or XML required on the web gateway side.
-Types are wire-learned from DDS discovery (see discovery.py).
+Declares DDS participants, topic subscriptions, QoS, type library path,
+and mapping views in a single YAML file.
+
+Types are loaded from an XML type library (generated from IDL via
+`rtiddsgen -convertToXml`). Each topic entry specifies its type_name
+so the gateway can create readers immediately at startup.
 
 Config schema mirrors the pattern proven in act-sim-scope-infra's C++ router
 (references/act-sim-scope-infra/router/config/) adapted for Python + the
@@ -38,9 +41,10 @@ class FilterConfig:
 
 @dataclass
 class TopicConfig:
-    """A topic to subscribe to. Type is learned from wire discovery."""
+    """A topic to subscribe to. Type is loaded from the XML library."""
     name: str
     participant: str  # references a ParticipantConfig.name
+    type_name: str = ""  # fully-qualified type in XML, e.g. "PLC::MetaData"
     qos_profile: str | None = None
     filter: FilterConfig | None = None
 
@@ -73,6 +77,7 @@ class ServerConfig:
 @dataclass
 class ScadaWebConfig:
     """Root configuration for scada_web."""
+    types_xml: str = ""  # path to XML type library (rtiddsgen -convertToXml output)
     participants: list[ParticipantConfig] = field(default_factory=list)
     topics: list[TopicConfig] = field(default_factory=list)
     views: list[ViewConfig] = field(default_factory=list)
@@ -129,11 +134,16 @@ def load_config(path: str | Path) -> ScadaWebConfig:
             qos_xml=p.get("qos_xml"),
         ))
 
+    # Types
+    types_section = raw.get("types", {})
+    cfg.types_xml = types_section.get("xml", "")
+
     # Topics
     for t in raw.get("topics", []):
         cfg.topics.append(TopicConfig(
             name=t["name"],
             participant=t["participant"],
+            type_name=t.get("type", ""),
             qos_profile=t.get("qos_profile"),
             filter=_parse_filter(t.get("filter")),
         ))
@@ -163,11 +173,16 @@ def load_config(path: str | Path) -> ScadaWebConfig:
 
 def _validate(cfg: ScadaWebConfig) -> None:
     """Cross-reference validation (participant refs exist, etc.)."""
+    if not cfg.types_xml:
+        raise ValueError("config must specify types.xml path")
     participant_names = {p.name for p in cfg.participants}
     for t in cfg.topics:
         if t.participant not in participant_names:
             raise ValueError(
                 f"topic '{t.name}' references unknown participant '{t.participant}'")
+        if not t.type_name:
+            raise ValueError(
+                f"topic '{t.name}' must specify a 'type' (fully-qualified name from XML)")
     topic_names = {t.name for t in cfg.topics}
     for v in cfg.views:
         if v.topic not in topic_names:
