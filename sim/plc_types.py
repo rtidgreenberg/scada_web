@@ -180,3 +180,33 @@ def set_value_t(sample: dds.DynamicData, member_path: str, kind: str, value) -> 
         raise ValueError(f"unknown Value_t kind: {kind!r}")
     field = f"{member_path}.{_VALUE_KIND_MEMBERS[kind]}"
     _VALUE_KIND_SETTERS[kind](sample, field, value)
+
+
+# Order matches the ValueKind_t enum's declaration order (KIND_STRING=0,
+# KIND_INT32=1, KIND_INT64=2, KIND_FLOAT32=3, KIND_FLOAT64=4), so the union's
+# integer `discriminator` can be used directly as an index.
+_VALUE_KIND_BY_DISCRIMINATOR = list(_VALUE_KIND_MEMBERS.keys())
+
+_VALUE_KIND_GETTERS = {
+    "int32": lambda data, path: data.get_int32(path),
+    "int64": lambda data, path: data.get_int64(path),
+    "float32": lambda data, path: data.get_float32(path),
+    "float64": lambda data, path: data.get_float64(path),
+}
+
+
+def get_value_t(sample: dds.DynamicData, member_path: str):
+    """Reads a `Value_t` union field at `member_path` (e.g. "rawValue" or
+    "limits.redHigh"), returning a `(kind, value)` tuple where `kind` is one
+    of "string", "int32", "int64", "float32", "float64" -- the union case
+    selected by the sample's discriminator -- and `value` is the decoded
+    Python value for that case.
+    """
+    union = sample[member_path]
+    kind = _VALUE_KIND_BY_DISCRIMINATOR[union.discriminator]
+    field = _VALUE_KIND_MEMBERS[kind]
+    if kind == "string":
+        # Fixed char array, NUL-padded; see _set_char_array.
+        chars = union.get_char_values(field)
+        return kind, "".join(chars).split("\0", 1)[0]
+    return kind, _VALUE_KIND_GETTERS[kind](union, field)
