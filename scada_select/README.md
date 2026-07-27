@@ -14,9 +14,14 @@ Also forwards `PLC::MetaData` unmodified to `PLC::SelectedMetaData` so that noth
 else has to cross the boundary. Same types in, same types out — it makes no model
 changes, and holds no metadata map.
 
-No soft-real-time congestion may reach the field side: outbound writers are
-`KEEP_LAST`, never `KEEP_ALL`. That is the one invariant to preserve when editing
-this component — see the architecture doc §3.8.
+**The field side is `RELIABLE`; the web side is `BEST_EFFORT`.** Inbound
+`PLC::ValueRequest` is the one exception — operator intent does not self-heal. Two
+invariants to preserve when editing this component (architecture doc §3.8, §6):
+
+- No soft-real-time congestion may reach the field side. `BEST_EFFORT` output makes
+  this structural; outbound `KEEP_LAST`, never `KEEP_ALL`, keeps it that way.
+- The tag catalogue is **served on request**, not by durability — `TRANSIENT_LOCAL`
+  needs `RELIABLE` on both ends, which the web side does not have.
 
 **Status:** not started. Architecture and planned layout:
 [docs/scada-select-architecture.md](docs/scada-select-architecture.md).

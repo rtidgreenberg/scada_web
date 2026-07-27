@@ -1235,7 +1235,16 @@ not inspect fields, and inspecting fields is scada-web's entire job.
 **scada-selector is the sole conduit between the hard-real-time field side and the
 soft-real-time presentation side; `MetaData` is forwarded through it.**
 
-- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Amends:** [DD-024](#dd-024) (transport path only) · **Affects:** DD-020, DD-023, DD-027, OQ-13, OQ-22, OQ-26, SR-003, system-architecture §2, §4.3, §4.4, §7, scada-web `config.yaml`
+- **Status:** ACCEPTED, QoS amended by [DD-029](#dd-029) · **Date:** 2026-07-27 · **Amends:** [DD-024](#dd-024) (transport path only) · **Affects:** DD-020, DD-023, DD-027, OQ-13, OQ-22, OQ-26, SR-003, system-architecture §2, §4.3, §4.4, §7, scada-web `config.yaml`
+
+> **QoS amended by [DD-029](#dd-029).** The web side is `BEST_EFFORT`, so two
+> claims below are superseded: the forwarded catalogue is **not**
+> `TRANSIENT_LOCAL` and the selector is **not** a durability re-origin —
+> `TRANSIENT_LOCAL` requires `RELIABLE` on both ends, so the catalogue is served
+> on request instead. The `KEEP_LAST`-never-`KEEP_ALL` rule still holds but is no
+> longer what carries the invariant: a `BEST_EFFORT` writer cannot block on a slow
+> consumer at all. **The boundary itself, and every structural claim about it, is
+> unchanged** — DD-029 only makes it cheaper to enforce.
 
 **Decision.** The system has two timing zones, and scada-selector is the boundary
 between them:
@@ -1473,7 +1482,16 @@ request-driven.
 alternative (a) above, one QoS line. (b) A web-side consumer appears that genuinely
 needs every sample (a historian, [OQ-21](questions.md#oq-21)) — it should read the
 *field* side under its own reliability contract, or be a separate reliable route,
-rather than making the display path reliable for everyone. (c) Measurement shows
+rather than making the display path reliable for everyone. (b′) **Tags appear whose
+values are not idempotent** — totalizers, event counters, discrete state
+transitions, setpoint-write confirmations — where "the next periodic sample
+supersedes the lost one" is simply false. That is the case for **per-key reliability
+classes**, scoped as post-PoC work in
+[scada-web-architecture.md](../scada_web/docs/scada-web-architecture.md) §9.1.
+Two things to carry into that work: DDS reliability is per *endpoint*, so per-key
+means partitioning tags across topics rather than tuning a policy; and a reliable
+outbound writer reintroduces exactly the blocking path this decision removed, so the
+deliverable is isolating it, not configuring it. (c) Measurement shows
 best-effort loss on the web side is high enough to be visible to operators, which
 would indicate a network problem this decision is not the right fix for.
 

@@ -52,8 +52,9 @@ forwarded unmodified on its own topic, not merged into values.
 - Input: the subscription request topic (uid, enabled, rate), `IdValue`, `MetaData`
 - Output: `IdValue` on a selected topic and `MetaData` on a selected topic —
   **same types, different topic names**
-- State: per-uid `{enabled, period, last_emitted}`, plus middleware caches that
-  re-originate `MetaData` durability across the boundary
+- State: per-uid `{enabled, period, last_emitted}`, plus one field-side reader cache
+  that holds the tag catalogue and answers `METADATA` requests
+  ([DD-029](design-decisions.md#dd-029))
 - Not its job: JSON, HTTP, view schemas, correlation, alarm logic, and — still —
   any uid→metadata *map*; it forwards metadata without interpreting it
 
@@ -146,15 +147,15 @@ simpler and bounded.
   │    • compiled types — absorbs the batched full stream  │
   │    • per-uid {enabled, period, last_emitted}           │
   │    • republishes — same types, unmodified, downrated   │
-  │    • forwards MetaData unmodified; re-originates its   │
-  │      TRANSIENT_LOCAL durability across the boundary    │
+  │    • forwards MetaData unmodified; serves the whole    │
+  │      catalogue on METADATA request (no durability out) │
   └════════┬═════════════════════════════════▲═════════════┘
     ═══════╪══════ hard RT ─│─ soft RT ══════╪═══════════════  ← the boundary
            │                                  │
    PLC::SelectedValue                  subscription request
-   (IdValue type, selected + downrated)  (uid · enabled · period_ms)
-   PLC::SelectedMetaData                     │
-   (MetaData type, TRANSIENT_LOCAL)          │
+   (IdValue · BEST_EFFORT · VOLATILE)    (uid · enabled · period_ms)
+   PLC::SelectedMetaData                 (RELIABLE + KEEP_ALL — the
+   (MetaData · BEST_EFFORT · on request)  one exception, DD-023/DD-029)
            │                                  │
            ▼                                  │           SOFT REAL TIME
   ┌──────────────────────────────────────────┴────────────┐
@@ -177,10 +178,18 @@ simpler and bounded.
 **Everything above the double line is hard real time; everything below is soft
 real time; the selector is the only component in both zones**
 ([DD-028](design-decisions.md#dd-028)). The load-bearing consequence is directional:
-soft-side congestion must never back-pressure the hard side, which is why the
-selector's outbound writers are `KEEP_LAST` and never `KEEP_ALL` — see
+soft-side congestion must never back-pressure the hard side.
+
+**The two zones also have different reliability contracts**
+([DD-029](design-decisions.md#dd-029)): the field side is `RELIABLE`, the web side
+is **`BEST_EFFORT`**, and inbound `ValueRequest` is the single stated exception —
+operator intent on an unkeyed command stream does not self-heal, and a reliable
+*reader* cannot block anything. Best-effort output is also what makes the
+no-backpressure invariant structural rather than a matter of QoS discipline: a
+best-effort writer has no send window to exhaust and cannot block on a slow
+consumer. Detail in
 [scada-select-architecture.md](../scada_select/docs/scada-select-architecture.md)
-§3.8.
+§3.8 and §6.
 
 ---
 
@@ -294,8 +303,9 @@ reopened).
 |---|---|---|
 | Topic | `PLC::MetaData` | `PLC::SelectedMetaData` |
 | Type | `MetaData` | `MetaData` — same |
-| QoS | `RELIABLE` · `TRANSIENT_LOCAL` · `KEEP_LAST 1` | mirrored |
-| Written by | scada-sim, once per tag at startup | scada-selector, on receipt or on `METADATA` request |
+| QoS | `RELIABLE` · `TRANSIENT_LOCAL` · `KEEP_LAST 1` | **`BEST_EFFORT` · `VOLATILE`** · `KEEP_LAST 1` ([DD-029](design-decisions.md#dd-029)) |
+| Written by | scada-sim, once per tag at startup | scada-selector, on receipt **and on `METADATA` request** |
+| Late joiner gets history? | Yes — durability | **No** — request it |
 
 Three properties worth stating because they are easy to get wrong:
 
@@ -305,14 +315,19 @@ Three properties worth stating because they are easy to get wrong:
   Filtering it would deadlock discovery: a client cannot ask for a tag it cannot
   see. The volume argument for filtering does not apply — `MetaData` is written once
   per tag.
-- **Durability is re-originated, not merely relayed.** The forwarded topic is
-  `TRANSIENT_LOCAL` too, so a late-joining scada-web still gets every tag's
-  description regardless of start order. The cost is that a selector restart
-  briefly empties the catalogue for a late joiner, since `TRANSIENT_LOCAL` dies
-  with the writer and is repopulated from the sim on the next startup.
-- **`Command_t::METADATA` now has an owner.** The selector can service a re-publish
-  request by rewriting one instance from its own reader cache — which under the
-  previous arrangement nothing could do.
+- **Durability is not carried across the boundary — the catalogue is requested.**
+  `TRANSIENT_LOCAL` delivers history to a late joiner only when **both** the writer
+  and the reader are `RELIABLE` (verified against 7.7.0), and the web side is
+  `BEST_EFFORT` ([DD-029](design-decisions.md#dd-029)). So a late-joining scada-web
+  gets no catalogue by subscribing; it asks, over the one channel that is still
+  reliable, and retries until its map is populated. Values need no equivalent
+  because they are periodic — a late joiner waits at most one publish period.
+- **`Command_t::METADATA` is therefore the bootstrap path, not a fallback.** The
+  selector services it by rewriting instances from its field-side reader cache. It
+  needs a **sentinel `uid` meaning "all"** to bootstrap, since scada-web cannot ask
+  per-uid for a catalogue it does not yet have — a semantic addition to the existing
+  field, not an IDL change. Fix the concrete value (`-1` or `0`) in §4.1 when it is
+  chosen.
 
 The map still serves two purposes at once, which was always the main argument for
 scada-web owning it (§6.2): the **tag catalogue** for name-based lookup, and **view
@@ -325,12 +340,18 @@ the selector does not exist yet and the PoC works. It switches to
 
 ### 4.4 Unchanged
 
-`PLC::MetaData` and `PLC::IdValue` keep the QoS the sim already uses:
-`TRANSIENT_LOCAL` for MetaData, `VOLATILE` for IdValue because the process moves on.
-The selector mirrors each on its outbound side, with one deliberate exception:
-outbound history is always `KEEP_LAST`, never `KEEP_ALL`, so that a slow web-side
-consumer cannot block the selector's dispatch thread and stall field-side reception
-([DD-028](design-decisions.md#dd-028)).
+**On the field side**, `PLC::MetaData` and `PLC::IdValue` keep the QoS the sim
+already uses: `RELIABLE` throughout, `TRANSIENT_LOCAL` for MetaData, `VOLATILE` for
+IdValue because the process moves on.
+
+**On the web side, the selector does not mirror them** — it writes `BEST_EFFORT` +
+`VOLATILE` + `KEEP_LAST` ([DD-029](design-decisions.md#dd-029)). Outbound history
+stays `KEEP_LAST` and never `KEEP_ALL`, which under the earlier reliable design was
+what stopped a slow web consumer from blocking the dispatch thread and stalling
+field-side reception; with best-effort output it is defense in depth, since such a
+writer cannot block at all. The types and field values are untouched either way —
+QoS is not part of the data model, which is what keeps this consistent with Role 1
+being pure selection.
 
 ---
 
