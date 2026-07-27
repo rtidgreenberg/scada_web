@@ -6,8 +6,14 @@ alarm limits, and how their values evolve over time. It has no knowledge of
 DDS -- see plc_publisher.py for the Level 1->2 publication path -- so the
 process model can be tested or swapped independently of the transport.
 
-Tag naming follows <AREA>_<EQUIPMENT>_<MEASUREMENT>_<SUFFIX>, e.g.
-WTP1_PMP01_FLOW_PV, per the scada-sme tag/point database convention.
+The tag set is a synthetic rate/load-test population: 500 tags, uid 1-500,
+each a noisy sine wave with no particular real-world meaning. Each tag's
+IdValue publish rate is driven by `publish_period_s`, a Level 1 scan-rate
+grouping keyed on uid:
+  - uid 1-100:   2 Hz   (0.5 s)
+  - uid 101-200: 1 Hz   (1.0 s)
+  - uid 201-300: every 5 s
+  - uid 301-500: every 10 s
 """
 
 import math
@@ -71,63 +77,50 @@ def _noisy(fn, stddev: float):
     return wrapped
 
 
+# (low_uid, high_uid, period_s) bands, checked in order. Covers uid 1-500.
+_RATE_BANDS = (
+    (1, 100, 0.5),      # 2 Hz
+    (101, 200, 1.0),    # 1 Hz
+    (201, 300, 5.0),    # every 5 s
+    (301, 500, 10.0),   # every 10 s
+)
+
+TAG_COUNT = 500
+
+
+def publish_period_s(uid: int) -> float:
+    """Returns the IdValue publish period, in seconds, for `uid`, per the
+    rate distribution documented in this module's docstring.
+    """
+    for low, high, period in _RATE_BANDS:
+        if low <= uid <= high:
+            return period
+    raise ValueError(f"uid {uid} is outside the simulated rate bands (1-{TAG_COUNT})")
+
+
 def build_tags() -> List[Tag]:
-    """Builds the simulated tag list (Level 0/1 process model)."""
-    return [
-        Tag(
-            uid=101,
-            name="WTP1_PMP01_FLOW_PV",
-            long_name="WTP1 Pump 01 Discharge Flow",
-            units="gpm",
-            limits=Limits(
-                red_low=0, yellow_low=50, green_low=100,
-                green_high=400, yellow_high=450, red_high=500,
-            ),
-            value_fn=_noisy(_sine(mean=250, amplitude=60, period_s=180), 3.0),
-        ),
-        Tag(
-            uid=102,
-            name="WTP1_TK02_LVL_PV",
-            long_name="WTP1 Tank 02 Level",
-            units="%",
-            limits=Limits(
-                red_low=5, yellow_low=15, green_low=25,
-                green_high=85, yellow_high=92, red_high=97,
-            ),
-            value_fn=_noisy(_sine(mean=60, amplitude=20, period_s=600), 0.4),
-        ),
-        Tag(
-            uid=103,
-            name="WTP1_TK02_PRESS_PV",
-            long_name="WTP1 Tank 02 Discharge Pressure",
-            units="psi",
-            limits=Limits(
-                red_low=10, yellow_low=20, green_low=30,
-                green_high=80, yellow_high=90, red_high=100,
-            ),
-            value_fn=_noisy(_sine(mean=55, amplitude=8, period_s=240), 0.8),
-        ),
-        Tag(
-            uid=104,
-            name="WTP1_LINE1_TEMP_PV",
-            long_name="WTP1 Line 1 Process Temperature",
-            units="degF",
-            limits=Limits(
-                red_low=40, yellow_low=50, green_low=60,
-                green_high=90, yellow_high=95, red_high=100,
-            ),
-            value_fn=_noisy(_sine(mean=72, amplitude=5, period_s=900), 0.2),
-        ),
-        Tag(
-            uid=105,
-            name="WTP1_VLV01_POS_PV",
-            long_name="WTP1 Valve 01 Position Feedback",
-            units="% open",
-            limits=Limits(
-                red_low=0, yellow_low=5, green_low=10,
-                green_high=95, yellow_high=98, red_high=100,
-                active=True,
-            ),
-            value_fn=_noisy(_sine(mean=50, amplitude=45, period_s=120), 1.0),
-        ),
-    ]
+    """Builds the simulated tag list: TAG_COUNT synthetic tags (uid 1-500),
+    each a noisy sine wave whose shape varies by uid so tags are visibly
+    distinct, but with no real-world process meaning (Level 0/1 model).
+    """
+    tags = []
+    for uid in range(1, TAG_COUNT + 1):
+        sine_period_s = 30 + (uid % 47)
+        phase = (uid % 12) * (math.pi / 6)
+        tags.append(
+            Tag(
+                uid=uid,
+                name=f"SIM_TAG_{uid:03d}",
+                long_name=f"Simulated Tag {uid:03d}",
+                units="eng",
+                limits=Limits(
+                    red_low=0, yellow_low=10, green_low=20,
+                    green_high=80, yellow_high=90, red_high=100,
+                ),
+                value_fn=_noisy(
+                    _sine(mean=50, amplitude=40, period_s=sine_period_s, phase=phase),
+                    1.0,
+                ),
+            )
+        )
+    return tags

@@ -28,7 +28,7 @@ module PLC {
 	case KIND_INT64:
 		long long int64Value;
 	case KIND_FLOAT32:
-		double float32Value;
+		float float32Value;
 	case KIND_FLOAT64:
 		double float64Value;
 	};

@@ -21,11 +21,18 @@ Publishing pattern, per the QoS-pattern comments already in the IDL:
     -> published periodically for every tag, RELIABLE + VOLATILE (the
        process moves on; a new subscriber gets the next scan, not history).
 
+Each tag publishes IdValue on its own schedule rather than a single shared
+period: field_simulation.publish_period_s(uid) assigns uid 1-100 to 2 Hz,
+101-200 to 1 Hz, 201-300 to every 5 s, and 301-500 to every 10 s. A min-heap
+keyed on each tag's next-due time drives the scan loop so 500 independently
+rated tags are serviced without polling every tag every tick.
+
 Usage:
-    python3 sim/plc_publisher.py --domain-id 0 --period 1.0
+    python3 sim/plc_publisher.py --domain-id 0
 """
 
 import argparse
+import heapq
 import sys
 import time
 from pathlib import Path
@@ -34,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import rti.connextdds as dds
 
-from field_simulation import PLC_HOSTNAME, Tag, build_tags
+from field_simulation import PLC_HOSTNAME, Tag, build_tags, publish_period_s
 from plc_types import build_plc_types, set_value_t
 
 METADATA_TOPIC = "PLC::MetaData"
@@ -105,8 +112,9 @@ def _write_id_value(
     return smoothed
 
 
-def run(domain_id: int, period_s: float, verbose: bool) -> None:
+def run(domain_id: int, verbose: bool) -> None:
     tags = build_tags()
+    tags_by_uid = {tag.uid: tag for tag in tags}
     types = build_plc_types()
 
     participant = dds.DomainParticipant(domain_id)
@@ -125,7 +133,8 @@ def run(domain_id: int, period_s: float, verbose: bool) -> None:
     print(
         f"PLC sim '{PLC_HOSTNAME}' publishing {len(tags)} tags on domain "
         f"{domain_id}: '{METADATA_TOPIC}' (once at startup) and "
-        f"'{ID_VALUE_TOPIC}' (every {period_s}s)."
+        f"'{ID_VALUE_TOPIC}' (per-tag rate: uid 1-100 @ 2 Hz, 101-200 @ 1 Hz, "
+        f"201-300 every 5s, 301-500 every 10s)."
     )
 
     for tag in tags:
@@ -135,19 +144,35 @@ def run(domain_id: int, period_s: float, verbose: bool) -> None:
 
     smoothed_by_uid = {tag.uid: None for tag in tags}
     start = time.monotonic()
+
+    # Min-heap of (next_due_time, uid, period_s); each entry is rescheduled
+    # by period_s (not relative to `now`) on every publish, so a tag's cadence
+    # does not drift from processing time spent on other tags.
+    schedule: list = []
+    for tag in tags:
+        period = publish_period_s(tag.uid)
+        heapq.heappush(schedule, (start + period, tag.uid, period))
+
     try:
         while True:
+            due_time, uid, period = schedule[0]
+            sleep_for = due_time - time.monotonic()
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+            heapq.heappop(schedule)
+
+            tag = tags_by_uid[uid]
             t = time.monotonic() - start
-            for tag in tags:
-                smoothed_by_uid[tag.uid] = _write_id_value(
-                    id_value_writer, types.id_value, tag, t, smoothed_by_uid[tag.uid]
+            smoothed_by_uid[uid] = _write_id_value(
+                id_value_writer, types.id_value, tag, t, smoothed_by_uid[uid]
+            )
+            if verbose:
+                print(
+                    f"  {tag.name}: raw={tag.raw_value(t):.2f} "
+                    f"smoothed={smoothed_by_uid[uid]:.2f} {tag.units}"
                 )
-                if verbose:
-                    print(
-                        f"  {tag.name}: raw={tag.raw_value(t):.2f} "
-                        f"smoothed={smoothed_by_uid[tag.uid]:.2f} {tag.units}"
-                    )
-            time.sleep(period_s)
+
+            heapq.heappush(schedule, (due_time + period, uid, period))
     except KeyboardInterrupt:
         print("\nStopping PLC sim.")
 
@@ -156,13 +181,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--domain-id", type=int, default=0, help="DDS domain ID")
     parser.add_argument(
-        "--period", type=float, default=1.0, help="IdValue publish period, seconds"
-    )
-    parser.add_argument(
         "--verbose", action="store_true", help="Print each sample as it's published"
     )
     args = parser.parse_args()
-    run(args.domain_id, args.period, args.verbose)
+    run(args.domain_id, args.verbose)
 
 
 if __name__ == "__main__":
