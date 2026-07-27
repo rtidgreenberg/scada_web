@@ -59,7 +59,7 @@ views:
       - wire: smoothedValue
         view: value
         transform: union_scalar  # resolve Value_t union → bare scalar
-      - wire: instantaneousValue
+      - wire: rawValue
         view: raw_value
         transform: union_scalar
 

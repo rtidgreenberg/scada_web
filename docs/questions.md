@@ -89,12 +89,12 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-34](#oq-34) | Single IDL source with build-system enforcement? | DECIDED → [DD-043](design-decisions.md#dd-043) | MEDIUM | DG | Type duplication between sim/ and scada_select/ |
 | [OQ-35](#oq-35) | Config YAML references non-existent `instantaneousValue` — fix or rename IDL? | DECIDED | BLOCKING | DG | Gateway startup crash |
 | [OQ-36](#oq-36) | `_ws_clients` dict concurrent mutation in async event loop | DECIDED | HIGH | DG | Runtime correctness |
-| [OQ-37](#oq-37) | PoC reader QoS: match the sim's RELIABLE/TRANSIENT_LOCAL, or skip metadata? | OPEN | HIGH | DG | MetaData never arrives at gateway |
-| [OQ-38](#oq-38) | No `PlcValue.xml` committed — require `rtiddsgen` or commit generated file? | OPEN | HIGH | DG | Repo unrunnable without manual step |
-| [OQ-39](#oq-39) | Poll loop vs WaitSet for the Python gateway read path | OPEN | MEDIUM | DG | CPU waste, scalability |
-| [OQ-40](#oq-40) | Gateway testability: module globals + deprecated FastAPI events | OPEN | MEDIUM | DG | Test isolation |
-| [OQ-41](#oq-41) | Programmatic types (sim) vs XML types (gateway) — interop validated? | OPEN | MEDIUM | DG | End-to-end correctness |
-| [OQ-42](#oq-42) | Test strategy: what tests does the PoC need? | OPEN | MEDIUM | DG | Regression visibility |
+| [OQ-37](#oq-37) | PoC reader QoS: match the sim's RELIABLE/TRANSIENT_LOCAL, or skip metadata? | DECIDED | HIGH | DG | MetaData never arrives at gateway |
+| [OQ-38](#oq-38) | No `PlcValue.xml` committed — require `rtiddsgen` or commit generated file? | DECIDED | HIGH | DG | Repo unrunnable without manual step |
+| [OQ-39](#oq-39) | Poll loop vs WaitSet for the Python gateway read path | DECIDED | MEDIUM | DG | CPU waste, scalability |
+| [OQ-40](#oq-40) | Gateway testability: module globals + deprecated FastAPI events | DECIDED | MEDIUM | DG | Test isolation |
+| [OQ-41](#oq-41) | Programmatic types (sim) vs XML types (gateway) — interop validated? | DECIDED | MEDIUM | DG | End-to-end correctness |
+| [OQ-42](#oq-42) | Test strategy: what tests does the PoC need? | DECIDED | MEDIUM | DG | Regression visibility |
 | [OQ-18](#oq-18) | Should `ValueRequest` carry a `LIFESPAN`? | OPEN | LOW | — | Nothing; cheap later |
 | [OQ-22](#oq-22) | Enforce Purdue zones with DDS Security, or logically only? | OPEN — now structurally reachable via [DD-028](design-decisions.md#dd-028) | LOW | — | Deployment claims |
 | [OQ-4](#oq-4) | Is cross-topic join in the PoC? | ANSWERED | — | — | → DD-021 |
@@ -1496,9 +1496,14 @@ backpressure (drop oldest if queue full).
 ### OQ-37
 **PoC reader QoS: match the sim's RELIABLE/TRANSIENT_LOCAL, or accept missing metadata?**
 
-- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** MetaData never arrives at gateway if it starts after the sim
 - **Raised:** 2026-07-27 (architecture review, ISS-005)
+- **Decision:** 2026-07-27 — **No TRANSIENT_LOCAL on the MetaData reader.**
+  The gateway uses RELIABLE + VOLATILE. The sim must be started after the
+  gateway (or re-publish metadata), not the other way around. This matches
+  the final DD-029 design direction (no durability on web side) and avoids
+  introducing a QoS that must be removed later.
 
 **Context.** `gateway.py` creates DataReaders with **default QoS** (BEST_EFFORT +
 VOLATILE on most Connext installs). The sim's MetaData writer is RELIABLE +
@@ -1527,9 +1532,12 @@ has a `qos_profile` field per topic — implement it in `_create_readers()`.
 ### OQ-38
 **No `PlcValue.xml` committed — require `rtiddsgen` or commit generated file?**
 
-- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** Repo is unrunnable without a manual `rtiddsgen` step
 - **Raised:** 2026-07-27 (architecture review, ISS-007)
+- **Decision:** 2026-07-27 — **Option A: commit the generated XML.**
+  `dds/idl/PlcValue.xml` is checked in alongside the IDL. Regenerate with
+  `rtiddsgen -convertToXml dds/idl/PlcValue.idl -d dds/idl/` after IDL changes.
 
 **Context.** `scada_web/config.yaml` references `dds/idl/PlcValue.xml` but no such
 file exists in the repo. The sim uses programmatic type building (`plc_types.py`),
@@ -1561,9 +1569,12 @@ C++ service. Validate with B as fallback if QosProvider features are needed.
 ### OQ-39
 **Poll loop vs WaitSet for the Python gateway read path**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** CPU waste at scale; not blocking for PoC
 - **Raised:** 2026-07-27 (architecture review, ISS-009)
+- **Decision:** 2026-07-27 — **Option B: WaitSet with ReadCondition.** Use
+  `WaitSet` + `ReadCondition` per reader, run in a thread, post results to the
+  asyncio loop. Avoids CPU waste from polling and is the correct DDS pattern.
 
 **Context.** `gateway.py` `_read_loop()` polls all readers every 50ms regardless
 of data availability. With 5 tags at 1 Hz, the loop runs ~20× per publish cycle
@@ -1586,9 +1597,12 @@ would wake only on data arrival.
 ### OQ-40
 **Gateway testability: module globals + deprecated FastAPI events**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Test isolation; future FastAPI upgrade
 - **Raised:** 2026-07-27 (architecture review, ISS-015)
+- **Decision:** 2026-07-27 — **Option B: keep globals for PoC.** Single-client,
+  single-process. Refactor to `app.state` + `lifespan` when adding the first
+  test or upgrading FastAPI.
 
 **Context.** `server.py` stores `_gateway`, `_interest`, `_config`, `_ws_clients`
 as module-level globals set by `create_app()`. This makes it impossible to
@@ -1611,9 +1625,15 @@ the first test (OQ-42), not as a separate task.
 ### OQ-41
 **Programmatic types (sim) vs XML types (gateway) — is interop validated?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** End-to-end correctness (sim → gateway)
 - **Raised:** 2026-07-27 (architecture review, ISS-016)
+- **Decision:** 2026-07-27 — **Keep programmatic types; target compiled types.**
+  Both sim and gateway use programmatic type construction from `plc_types.py`
+  for the PoC. The long-term direction is compiled types (C++ selector uses
+  `rtiddsgen`); the XML stays committed for reference and for the gateway's
+  QosProvider path if needed. Interop is validated by the integration test
+  (OQ-42).
 
 **Context.** The sim builds types programmatically via `plc_types.py`
 (StructType, UnionType, etc.); the gateway plans to load them from XML via
@@ -1639,9 +1659,17 @@ integration test.
 ### OQ-42
 **Test strategy: what tests does the PoC need?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Regression visibility; confidence in refactoring
 - **Raised:** 2026-07-27 (architecture review, ISS-018)
+- **Decision:** 2026-07-27 — **Unit tests first, integration when end-to-end
+  is wired.**
+  - Unit: `interest.py` (subscribe/unsubscribe/disconnect/reconcile) +
+    `config.py` (valid/invalid YAML, cross-ref validation). No DDS dependency.
+  - Integration: sim publishes → gateway receives → WebSocket client gets JSON.
+    Added when full pipeline is running end-to-end.
+  - Smoke: `python -m scada_web` starts, `/health` returns 200. Added with
+    integration.
 
 **Context.** No tests exist anywhere in the repo. `interest.py` is pure Python
 and trivially unit-testable. `config.py`'s loader and validator are testable
