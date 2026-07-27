@@ -78,7 +78,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-21](#oq-21) | Are trends and a historian in scope? | DECIDED | MEDIUM | DG | Browser scope |
 | [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | DECIDED | MEDIUM | DG | Web surface design |
 | [OQ-1](#oq-1) | RTI licensing/support position on reimplementing WIS | OPEN | MEDIUM | DG | Productization, not the PoC |
-| [OQ-26](#oq-26) | One DDS domain across the RT boundary, or two? | OPEN | MEDIUM | DG | Selector deployment, OQ-22 |
+| [OQ-26](#oq-26) | One DDS domain across the RT boundary, or two? | RESOLVED | MEDIUM | DG | Selector deployment, OQ-22 |
 | [OQ-27](#oq-27) | Should `ValueRequest` be keyed + `TRANSIENT_LOCAL` for phase 0? | SUPERSEDED by [DD-034](design-decisions.md#dd-034)/[DD-036](design-decisions.md#dd-036) | HIGH | DG | Control plane design, SR-003 |
 | [OQ-28](#oq-28) | `METADATA` sentinel uid: magic value or new enum? | DEFERRED → [DD-039](design-decisions.md#dd-039) | MEDIUM | DG | IDL contract, catalogue bootstrap |
 | [OQ-29](#oq-29) | `char stringValue[32]` vs `string<32>` in the IDL | DECIDED → [DD-040](design-decisions.md#dd-040) | HIGH | DG | Type correctness, Python/C++ interop |
@@ -87,8 +87,8 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-32](#oq-32) | Should inbound `IdValue` reader be `BEST_EFFORT`? | DECIDED → [DD-042](design-decisions.md#dd-042) | MEDIUM | DG | Field-side backpressure on selector stall |
 | [OQ-33](#oq-33) | How is reader-cache overflow made observable? | ANSWERED → [DD-042](design-decisions.md#dd-042) | LOW | DG | Silent data loss, observability |
 | [OQ-34](#oq-34) | Single IDL source with build-system enforcement? | DECIDED → [DD-043](design-decisions.md#dd-043) | MEDIUM | DG | Type duplication between sim/ and scada_select/ |
-| [OQ-35](#oq-35) | Config YAML references non-existent `instantaneousValue` — fix or rename IDL? | OPEN | BLOCKING | DG | Gateway startup crash |
-| [OQ-36](#oq-36) | `_ws_clients` dict concurrent mutation in async event loop | OPEN | HIGH | DG | Runtime correctness |
+| [OQ-35](#oq-35) | Config YAML references non-existent `instantaneousValue` — fix or rename IDL? | DECIDED | BLOCKING | DG | Gateway startup crash |
+| [OQ-36](#oq-36) | `_ws_clients` dict concurrent mutation in async event loop | DECIDED | HIGH | DG | Runtime correctness |
 | [OQ-37](#oq-37) | PoC reader QoS: match the sim's RELIABLE/TRANSIENT_LOCAL, or skip metadata? | OPEN | HIGH | DG | MetaData never arrives at gateway |
 | [OQ-38](#oq-38) | No `PlcValue.xml` committed — require `rtiddsgen` or commit generated file? | OPEN | HIGH | DG | Repo unrunnable without manual step |
 | [OQ-39](#oq-39) | Poll loop vs WaitSet for the Python gateway read path | OPEN | MEDIUM | DG | CPU waste, scalability |
@@ -1111,7 +1111,7 @@ away. That holds under option A here just as much as under B.
 ### OQ-26
 **Does the PoC run one DDS domain across the real-time boundary, or two?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** RESOLVED by [DD-044](design-decisions.md#dd-044) · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Nothing in the code — scada-selector takes `--field-domain` and
   `--web-domain` regardless. Blocks the *deployment* story and part of
   [OQ-22](#oq-22)
@@ -1436,9 +1436,11 @@ load. One file, two generated outputs, enforced by the build system.
 ### OQ-35
 **Config YAML references non-existent `instantaneousValue` — fix or rename IDL field?**
 
-- **Status:** OPEN · **Priority:** BLOCKING · **Owner:** DG
+- **Status:** DECIDED · **Priority:** BLOCKING · **Owner:** DG
 - **Blocks:** Gateway startup (crash on first sample)
 - **Raised:** 2026-07-27 (architecture review, ISS-001)
+- **Decision:** 2026-07-27 — **Option A: fix the config.** IDL is source of truth.
+  Changed `instantaneousValue` → `rawValue` in `config.yaml`.
 
 **Context.** `scada_web/config.yaml` view `tag_value` maps
 `wire: instantaneousValue` but the `IdValue` struct in `PlcValue.idl` has
@@ -1460,9 +1462,12 @@ DynamicData member path.
 ### OQ-36
 **`_ws_clients` dict concurrent mutation in the async event loop — what pattern to use?**
 
-- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** Runtime correctness under client churn
 - **Raised:** 2026-07-27 (architecture review, ISS-002)
+- **Decision:** 2026-07-27 — **Option C: accept CPython snapshot for PoC.**
+  `list(_ws_clients.items())` + try/except on send. Per-client asyncio.Queue
+  (option A) is future roadmap for production multi-client use.
 
 **Context.** `server.py` iterates `_ws_clients` in `_on_dds_sample()` (called
 from the gateway's async read loop) while the WebSocket endpoint adds/removes

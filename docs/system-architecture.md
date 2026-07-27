@@ -139,8 +139,10 @@ simpler and bounded.
                    │
       PLC::MetaData  (@key uid · RELIABLE · TRANSIENT_LOCAL · once at startup)
       PLC::IdValue   (@key uid · RELIABLE · VOLATILE · periodic)
-                   │
-                   ▼
+                   │                          ┌─────────────────────┐
+                   │                          │  DDS DOMAIN 0       │
+                   │                          │  (field)            │
+                   ▼                          └─────────────────────┘
   ┌──────────────────────────────────────── Level 2 ───────┐
   │  scada-selector   ROLE 1: select by id AND rate        │
   │                   + THE SYSTEM BOUNDARY (DD-028)       │
@@ -149,6 +151,8 @@ simpler and bounded.
   │    • republishes — same types, unmodified, downrated   │
   │    • forwards MetaData unmodified; serves the whole    │
   │      catalogue on METADATA request (no durability out) │
+  │    • TWO DomainParticipants: field (0) and web (1)     │
+  │      (DD-044)                                          │
   └════════┬═════════════════════════════════▲═════════════┘
     ═══════╪══════ hard RT ─│─ soft RT ══════╪═══════════════  ← the boundary
            │                                  │
@@ -157,13 +161,16 @@ simpler and bounded.
    PLC::SelectedMetaData                 (RELIABLE + KEEP_ALL — the
    (MetaData · BEST_EFFORT · on request)  one exception, DD-023/DD-029)
            │                                  │
-           ▼                                  │           SOFT REAL TIME
+           │                          ┌─────────────────────┐
+           │                          │  DDS DOMAIN 1       │
+           │                          │  (web)              │
+           ▼                          └─────────────────────┘
   ┌──────────────────────────────────────────┴────────────┐
   │  scada-web         ROLE 2: presentation                │
   │    • readers on SelectedValue + SelectedMetaData; one  │
   │      writer on ValueRequest — fixed, small entity set  │
-  │    • NO field-side endpoint — nothing on the hard-RT   │
-  │      domain, not even discovery traffic                │
+  │    • NO field-side endpoint — nothing on domain 0,     │
+  │      not even discovery traffic (DD-044)               │
   │    • uid→metadata map: tag catalogue + view lookup     │
   │    • refcounts uid interest across clients             │
   │    • mapping engine: wire type → slim view schema      │
@@ -179,6 +186,13 @@ simpler and bounded.
 real time; the selector is the only component in both zones**
 ([DD-028](design-decisions.md#dd-028)). The load-bearing consequence is directional:
 soft-side congestion must never back-pressure the hard side.
+
+**Domain isolation ([DD-044](design-decisions.md#dd-044)):** domain 0 (field)
+carries sim↔selector traffic only; domain 1 (web) carries selector↔scada-web
+traffic only. The selector bridges the two via separate participants. A
+misconfigured scada-web cannot reach field topics — the middleware refuses the
+match. Discovery traffic on each domain is minimal and scoped to the components
+that belong there.
 
 **The two zones also have different reliability contracts**
 ([DD-029](design-decisions.md#dd-029)): the field side is `RELIABLE`, the web side

@@ -1751,3 +1751,61 @@ scada_web/
 
 **Enforcement:** if the IDL changes and the build is re-run, both outputs
 regenerate. No component can silently use a stale type definition.
+
+---
+
+### DD-044
+**Use separate DDS domain IDs for each link: sim→selector and selector→web.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-26](questions.md#oq-26) · **Affects:** DD-028, OQ-22, system-architecture §2
+
+**Decision.** The system runs three distinct domain IDs:
+
+| Domain ID | Link | Participants |
+|---|---|---|
+| 0 (field) | sim ↔ selector field-side | scada-sim, scada-selector (field participant) |
+| 1 (web) | selector web-side ↔ scada-web | scada-selector (web participant), scada-web |
+
+scada-selector bridges domains 0 and 1 via two participants, one per side. No
+component other than the selector holds a participant on more than one domain.
+
+**Context.** DD-028 made the selector the sole conduit and established that the
+zone boundary is enforced by topology. OQ-26 asked whether to also enforce it by
+domain configuration. With separate domains, a misconfigured scada-web *cannot*
+reach field topics — the middleware refuses the match — rather than merely not being
+pointed at them. This moves the enforcement from "nobody creates a field-side
+reader" (discipline) to "the middleware will not deliver field traffic to domain 1"
+(mechanism).
+
+Discovery traffic is the concrete payoff: domain 0 carries only the sim's writers
+and the selector's readers — no browser-driven churn, no web-side restarts, no
+DynamicData readers with their type-object announcements. The field side stays
+quiet.
+
+**Alternatives.** (a) **One domain for everything** — rejected: the zone claim in
+DD-028 rests on discipline only, and a single domain means field-side discovery
+grows with every web-side entity change. (b) **Partitions instead of domains** —
+rejected per OQ-26 analysis: partitions are a matching filter, not an isolation
+boundary; a participant that names the partition still joins. (c) **Two domains but
+with sim on domain 1 alongside the web** — rejected: that moves the system boundary
+away from the selector, contradicting DD-028's invariant.
+
+**Consequences.**
+
+- scada-selector runs two `DomainParticipant`s (one per domain). Both share a
+  single `WaitSet` dispatch loop — conditions from different participants may
+  coexist on one `WaitSet`. Cost: two sets of discovery and receive threads.
+- scada-sim stays on domain 0. No code change; it already defaults to 0.
+- scada-web stays on domain 1. Its `config.yaml` `domain_id` changes from 0 to 1
+  (or is parameterized via `--domain`).
+- The selector's CLI takes `--field-domain 0 --web-domain 1`. Setting them equal
+  collapses to single-domain deployment for local debugging.
+- Topic names remain distinct across the boundary (`IdValue` vs `SelectedValue`,
+  `MetaData` vs `SelectedMetaData`) so that a single-domain fallback works without
+  name collisions.
+- `rtiddsspy` on domain 0 shows only field traffic; on domain 1 only web traffic.
+  Debugging is cleaner.
+
+**Revisit if.** DDS Security Governance is deployed per-domain with different
+policies for field and web — then the domain split is load-bearing for security,
+not just isolation, and should be documented under OQ-22 as well.
