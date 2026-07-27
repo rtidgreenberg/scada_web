@@ -175,7 +175,7 @@ the snippets in §3.4 and §4.3 were validated against the Connext 7.7.0 C++11 A
 (§10).
 
 **Types are compiled, not `DynamicData`** — `rtiddsgen` from
-[`PlcValue.idl`](../../sim/PlcValue.idl), built by CMake
+[`PlcValue.idl`](../../dds/idl/PlcValue.idl), built by CMake
 ([DD-026](../../docs/design-decisions.md#dd-026), impl notes §1). The selector
 subscribes to the high-rate topic, so the per-sample key check must be a struct
 member load (`s.data().uid`) rather than a name lookup
@@ -380,11 +380,11 @@ QoS provider XML for the profiles in §6. Two domain flags rather than one becau
 of §3.8; setting both to the same value is the single-domain deployment.
 
 **The IDL is copied into `idl/`, and that is a real duplication** of
-[`sim/PlcValue.idl`](../../sim/PlcValue.idl). It is the residue of
+[`dds/idl/PlcValue.idl`](../../dds/idl/PlcValue.idl). It is the residue of
 [OQ-20](../../docs/questions.md#oq-20): the intended end state is one IDL with two automated
 derivations — `rtiddsgen` for this component, `rtiddsgen -convertToXml` for the
 types library scada-web loads — so nothing is hand-transcribed. Until that is
-wired, prefer pointing `CMakeLists.txt` at `../sim/PlcValue.idl` over keeping a
+wired, prefer pointing `CMakeLists.txt` at `../dds/idl/PlcValue.idl` over keeping a
 second copy in sync by hand.
 
 ### 3.8 The Real-Time Boundary
@@ -716,7 +716,7 @@ because it means presentation work has drifted across the boundary.
 
 ## 6. Topic and QoS Contract
 
-Types are in [`sim/PlcValue.idl`](../../sim/PlcValue.idl). Contracts in
+Types are in [`dds/idl/PlcValue.idl`](../../dds/idl/PlcValue.idl). Contracts in
 [system-architecture.md](../../docs/system-architecture.md) §4.
 
 **The two sides have different reliability contracts**
@@ -898,7 +898,7 @@ Future work, in rough order of value:
 - [architecture-comparison.md](../../docs/architecture-comparison.md) — why Routing Service is not used
 - [design-decisions.md](../../docs/design-decisions.md) — [DD-023](../../docs/design-decisions.md#dd-023), [DD-024](../../docs/design-decisions.md#dd-024), [DD-026](../../docs/design-decisions.md#dd-026), [DD-027](../../docs/design-decisions.md#dd-027), [DD-028](../../docs/design-decisions.md#dd-028), [DD-029](../../docs/design-decisions.md#dd-029)
 - [Ensuring Information is Available to Late-Joining Applications](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/manuals/connext_dds_professional/users_manual/users_manual/Ensuring_Information_is_Available_to_Lat.htm) and [KB: Why does my DataReader miss the first few samples?](https://community.rti.com/kb/why-does-my-dds-datareader-miss-first-few-samples) — **`TRANSIENT_LOCAL` late-joiner delivery requires `RELIABLE` on both writer and reader.** Verified via Connext AI; this is what makes the §4.4 catalogue request-driven rather than durable
-- [sim/PlcValue.idl](../../sim/PlcValue.idl) — the type and command contract
+- [dds/idl/PlcValue.idl](../../dds/idl/PlcValue.idl) — the type and command contract
 - [scada-web-architecture.md](../../scada_web/docs/scada-web-architecture.md) — the Role 2 counterpart (colocated under `scada_web/docs/` in a parallel change)
 - [Connext 7.7.0 Modern C++ API reference](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/api/connext_dds/api_cpp2/index.html) — the `api_cpp2` tree is the Modern API; `api_cpp` is the Traditional one
 - [`DataWriter` (Modern C++)](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/api/connext_dds/api_cpp2/classdds_1_1pub_1_1DataWriter.html) — `dispose_instance` / `unregister_instance` / `lookup_instance`

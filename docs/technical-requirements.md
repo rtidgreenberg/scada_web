@@ -455,7 +455,7 @@ land correctly on the DDS types underneath.
   completeness item** — in the actual data model every value is a `Value_t` union
   discriminated over string/int32/int64/float32/float64, so union-to-scalar
   projection must work before anything is demonstrable. One concrete case from
-  [sim/PlcValue.idl](../sim/PlcValue.idl): the string branch is `char[32]`, not
+  [dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl): the string branch is `char[32]`, not
   `string<32>`, and so needs an explicit char-array-to-string decode with
   NUL-trimming rather than JSON's array-of-chars. See
   [system-architecture.md](system-architecture.md) §6.1.

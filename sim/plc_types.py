@@ -1,4 +1,4 @@
-"""DynamicType schema for the PLC IDL module (sim/PlcValue.idl).
+"""DynamicType schema for the PLC IDL module (dds/idl/PlcValue.idl).
 
 Builds the DDS wire types programmatically via the Connext Python API's
 DynamicType builders (StructType, UnionType, EnumType, ...) rather than
@@ -13,7 +13,7 @@ of simulated process values -- that separation of concerns is deliberate,
 see the scada-sme agent's module-layout guidance.
 
 The struct/union/enum shapes below are a direct, field-for-field
-transcription of sim/PlcValue.idl. Where the IDL itself is unusual --
+transcription of dds/idl/PlcValue.idl. Where the IDL itself is unusual --
 notably, stringValue is a fixed char array rather than a bounded string --
 that is preserved verbatim rather than "corrected", because the wire
 schema must match the real IDL exactly.

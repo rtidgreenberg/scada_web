@@ -717,7 +717,7 @@ reader and one writer against it, regardless of client count.
 **Context.** Direction from the project owner. The alternative — which the TRD
 implicitly assumed — was per-client content-filtered readers inside scada-web.
 The control topic for this already exists in
-[sim/PlcValue.idl](../sim/PlcValue.idl) (`ValueRequest`, `Command_t`), so the
+[dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl) (`ValueRequest`, `Command_t`), so the
 data model anticipated this design before the requirement was stated.
 
 **Alternatives.** Per-client content-filtered DataReaders in the web tier.
@@ -857,7 +857,7 @@ shape. Then DD-009 is reinstated as written.
 `KEEP_ALL` history on both writer and reader. Not `KEEP_LAST`.
 
 **Context.** `ValueRequest` has no `@key` in
-[sim/PlcValue.idl](../sim/PlcValue.idl), so every command lands on a single
+[dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl), so every command lands on a single
 instance. Under `KEEP_LAST depth=1` — the QoS the sim uses for its other
 topics — a writer may replace an unacknowledged sample with a newer one.
 `RELIABLE` guarantees the *latest* sample is delivered, not that every sample is.

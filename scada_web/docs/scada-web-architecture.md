@@ -66,7 +66,7 @@ The gateway loads DynamicTypes from an XML type library at startup via
 `dds.QosProvider`. The XML is generated from the canonical IDL source:
 
 ```bash
-rtiddsgen -convertToXml sim/PlcValue.idl -d sim/
+rtiddsgen -convertToXml dds/idl/PlcValue.idl -d dds/idl/
 ```
 
 In SCADA, the data model is **commissioned infrastructure** — it is defined
@@ -88,7 +88,7 @@ router config:
 
 ```yaml
 types:
-  xml: sim/PlcValue.xml        # XML type library path
+  xml: dds/idl/PlcValue.xml    # XML type library path
 
 participants:
   <name>:

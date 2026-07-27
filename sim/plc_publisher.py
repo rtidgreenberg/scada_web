@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Simulated PLC/RTU that publishes DDS samples of the PLC IDL module
-(sim/PlcValue.idl) for the scada_web web gateway to expose to web clients.
+(dds/idl/PlcValue.idl) for the scada_web web gateway to expose to web clients.
 
 Purdue-model placement: this script *is* the Level 1 (PLC/RTU) boundary. It
 owns the field-device scan loop and is the only thing in the sim that talks

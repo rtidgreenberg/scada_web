@@ -812,7 +812,7 @@ those are different languages, the type gets defined twice and can drift — and
 drifted type fails at *runtime* as a type-mismatch on endpoint matching, not at
 build time.
 
-The sim already shows the shape of this problem: [sim/PlcValue.idl](../sim/PlcValue.idl)
+The sim already shows the shape of this problem: [dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl)
 is the nominal source of truth, but [sim/plc_types.py](../sim/plc_types.py)
 hand-transcribes it into DynamicType builder calls, with a docstring noting the
 transcription is deliberate and field-for-field. That is careful and correct today,
@@ -1411,17 +1411,17 @@ metrics surface (§9 future work).
 - **Decision:** 2026-07-27 — [DD-043](design-decisions.md#dd-043). **Option B+D: move IDL
   to `dds/idl/`; CMake generates both C++ types and XML from it.**
 
-**Context.** `PlcValue.idl` lives in `sim/` and must also be consumed by
+**Context.** `PlcValue.idl` lives in `dds/idl/` and must also be consumed by
 `scada_select/`'s CMake build (for `rtiddsgen`) and by the Python runtime (via
 `rtiddsgen -convertToXml`). The current plan (§3.7) says "point CMakeLists.txt at
-`../sim/PlcValue.idl`" — a fragile relative path that breaks if either directory
+`../dds/idl/PlcValue.idl`" — a fragile relative path that breaks if either directory
 moves, with no build-system check that the two consumers see the same file.
 
 **Options.**
 
 | | Option | Consequence |
 |---|---|---|
-| A | **Relative path `../sim/PlcValue.idl`** in CMakeLists.txt | Works now; breaks on restructure; no enforcement. |
+| A | **Relative path `../dds/idl/PlcValue.idl`** in CMakeLists.txt | Works now; breaks on restructure; no enforcement. |
 | B | **Top-level `idl/` directory** with both CMake and Python targeting it | Single source of truth, both builds reference the same path. Slight project restructure. |
 | C | **CMake `FetchContent` or symlink** from scada_select to sim | Adds indirection; symlinks are fragile across platforms. |
 | D | **`rtiddsgen -convertToXml` as a CMake custom target** that also produces the XML for Python | Both C++ types and Python XML are generated from one IDL in one build step. Strongest enforcement. |
@@ -1526,11 +1526,11 @@ has a `qos_profile` field per topic — implement it in `_create_readers()`.
 - **Blocks:** Repo is unrunnable without a manual `rtiddsgen` step
 - **Raised:** 2026-07-27 (architecture review, ISS-007)
 
-**Context.** `scada_web/config.yaml` references `sim/PlcValue.xml` but no such
+**Context.** `scada_web/config.yaml` references `dds/idl/PlcValue.xml` but no such
 file exists in the repo. The sim uses programmatic type building (`plc_types.py`),
 which works for the publisher, but the gateway needs the XML file. Anyone
 cloning the repo cannot run `python -m scada_web` without first running
-`rtiddsgen -convertToXml sim/PlcValue.idl -d sim/`.
+`rtiddsgen -convertToXml dds/idl/PlcValue.idl -d dds/idl/`.
 
 Related to [OQ-34](#oq-34) (single IDL source with build enforcement), but that
 question is about the long-term build system. This is about **right now**: can

@@ -5,9 +5,9 @@
 # Pattern: references/act-sim-scope-infra/router/config/control-platform.yaml
 
 # --- XML type library ---
-# Generated with: rtiddsgen -convertToXml sim/PlcValue.idl -d sim/
+# Generated with: rtiddsgen -convertToXml dds/idl/PlcValue.idl -d dds/idl/
 types:
-  xml: sim/PlcValue.xml
+  xml: dds/idl/PlcValue.xml
 
 # --- DDS participants ---
 # Each participant joins a domain and discovers endpoints on it.

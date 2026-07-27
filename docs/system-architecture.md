@@ -220,7 +220,7 @@ DDS entities. See [DD-020](design-decisions.md#dd-020).
 
 ### 4.1 Subscription request — scada-web → scada-selector
 
-Current type in [sim/PlcValue.idl](../sim/PlcValue.idl), with `period_ms` added
+Current type in [dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl), with `period_ms` added
 for [DD-027](design-decisions.md#dd-027):
 
 ```idl

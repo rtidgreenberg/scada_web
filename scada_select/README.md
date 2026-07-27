@@ -7,7 +7,7 @@ soft-real-time presentation side).
 Standalone service in the Connext **Modern C++ API** (`dds::`, `cpp2_api`,
 `rtiddsgen -language C++11`) at language level **C++17**, using **compiled** types
 generated from
-[`../sim/PlcValue.idl`](../sim/PlcValue.idl). Subscribes to the full
+[`dds/idl/PlcValue.idl`](../dds/idl/PlcValue.idl). Subscribes to the full
 `PLC::IdValue` stream, forwards only the uids scada-web has requested on
 `PLC::ValueRequest`, at no more than the requested rate, on `PLC::SelectedValue`.
 Also forwards `PLC::MetaData` unmodified to `PLC::SelectedMetaData` so that nothing

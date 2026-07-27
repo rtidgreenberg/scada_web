@@ -33,7 +33,7 @@ find_package(RTIConnextDDS 7.7.0 REQUIRED COMPONENTS core)
 include(ConnextDdsCodegen)
 
 connextdds_rtiddsgen_run(
-    IDL_FILE         "${CMAKE_CURRENT_SOURCE_DIR}/idl/PlcValue.idl"
+    IDL_FILE         "${CMAKE_SOURCE_DIR}/../dds/idl/PlcValue.idl"
     LANG             "C++11"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated"
     VAR              plc
