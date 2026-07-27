@@ -14,10 +14,9 @@ see the scada-sme agent's module-layout guidance.
 
 The struct/union/enum shapes below are a direct, field-for-field
 transcription of sim/PlcValue.idl. Where the IDL itself is unusual --
-notably, both the KIND_FLOAT32 and KIND_FLOAT64 cases of Value_t are
-declared as IDL `double`, and stringValue is a fixed char array rather than
-a bounded string -- that is preserved verbatim rather than "corrected",
-because the wire schema must match the real IDL exactly.
+notably, stringValue is a fixed char array rather than a bounded string --
+that is preserved verbatim rather than "corrected", because the wire
+schema must match the real IDL exactly.
 """
 
 import rti.connextdds as dds
@@ -49,8 +48,7 @@ def _build_value_t(value_kind_t: dds.EnumType) -> dds.UnionType:
             dds.UnionMember("stringValue", string_value_array, 0),  # KIND_STRING
             dds.UnionMember("int32Value", dds.Int32Type(), 1),  # KIND_INT32
             dds.UnionMember("int64Value", dds.Int64Type(), 2),  # KIND_INT64
-            # See module docstring: both float cases are IDL `double`.
-            dds.UnionMember("float32Value", dds.Float64Type(), 3),  # KIND_FLOAT32
+            dds.UnionMember("float32Value", dds.Float32Type(), 3),  # KIND_FLOAT32
             dds.UnionMember("float64Value", dds.Float64Type(), 4),  # KIND_FLOAT64
         ],
     )
@@ -155,7 +153,7 @@ def _set_char_array(data: dds.DynamicData, path: str, value: str) -> None:
 _VALUE_KIND_SETTERS = {
     "int32": lambda data, path, value: data.set_int32(path, int(value)),
     "int64": lambda data, path, value: data.set_int64(path, int(value)),
-    "float32": lambda data, path, value: data.set_float64(path, float(value)),
+    "float32": lambda data, path, value: data.set_float32(path, float(value)),
     "float64": lambda data, path, value: data.set_float64(path, float(value)),
     "string": _set_char_array,
 }

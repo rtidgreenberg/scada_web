@@ -43,6 +43,7 @@ module PLC {
 		boolean active;
 	};
 
+    const string MetaDataTopic = "PLC::MetaDataTopic";
 	// Use State Data QoS pattern, only sent at startup, typically
 	struct MetaData {
 		@key UniqueId_t   uid;
@@ -52,6 +53,7 @@ module PLC {
 		Name_t            longName;
 	};
 
+    const string IdValueTopic = "PLC::IdValueTopic";
 	// Use 1-many reliable QoS pattern, perhaps batching, 
 	// durability, reliability depends on whether all values update periodically or upon change
 	struct IdValue {
@@ -67,6 +69,7 @@ module PLC {
 		METADATA
 	};
 
+    const string ValueRequestTopic = "PLC::ValueRequestTopic";
 	// Sent by scada_web to scada_selector to select which values are
 	// republished on the selected-value topic, and how often.
 	//
