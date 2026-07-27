@@ -4,8 +4,8 @@
 **Date:** 2026-07-27
 **Scope:** how compiled types are wired into scada-selector's readers and writers.
 
-Companion to [system-architecture.md](system-architecture.md) §1a (Role 1) and
-[DD-026](design-decisions.md#dd-026) (compiled types, standalone).
+Companion to [system-architecture.md](../../docs/system-architecture.md) §1a (Role 1) and
+[DD-026](../../docs/design-decisions.md#dd-026) (compiled types, standalone).
 
 > Everything in §1–§3 was **verified by building and running it** against the
 > local Connext 7.7.0 install, not taken from documentation. §4 is documented
@@ -173,7 +173,7 @@ the range goes out of scope. Do not retain references into it past that point.
 
 ### 3.1 Adding rate control
 
-[DD-027](design-decisions.md#dd-027) makes selection two-dimensional: by id **and**
+[DD-027](../../docs/design-decisions.md#dd-027) makes selection two-dimensional: by id **and**
 by rate. The state becomes per-uid rather than a bare set:
 
 ```cpp

@@ -1056,7 +1056,7 @@ if one turns out to need an answer.
   link, not configure. `BUILD_SHARED_LIBS=ON` is also required or
   `FindRTIConnextDDS` resolves a static variant that is not present. Both
   verified by building — see
-  [scada-selector-implementation.md](scada-selector-implementation.md) §1.
+  [scada-selector-implementation.md](../scada_select/docs/scada-selector-implementation.md) §1.
 - **rtiddsgen 4.7.0 generates public data members, not accessors** for C++11:
   `sample.uid`, not `sample.uid()`. Most RTI example code shows the older
   getter/setter style.

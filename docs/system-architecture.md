@@ -106,7 +106,7 @@ requirements: compiled types for Role 1, DataReader read semantics for Role 2.
 Full analysis in [architecture-comparison.md](architecture-comparison.md);
 tracked as [OQ-23](questions.md#oq-23). Build configuration and hot-path patterns
 for Role 1 are in
-[scada-selector-implementation.md](scada-selector-implementation.md), verified by
+[scada-selector-implementation.md](../scada_select/docs/scada-selector-implementation.md), verified by
 building and running against the local 7.7.0 install.
 
 **Considered and rejected for Role 1: no code at all.** Routing Service supports
@@ -209,7 +209,7 @@ struct ValueRequest {
 | `METADATA` | Re-publish `MetaData` for `uid` | Ignored |
 
 Instance lifecycle notifications (dispose/unregister) are **not** rate limited —
-see [scada-selector-implementation.md](scada-selector-implementation.md) §3.1.
+see [scada-selector-implementation.md](../scada_select/docs/scada-selector-implementation.md) §3.1.
 
 > **Still open: whether this should be keyed desired state instead of a command
 > stream.** [OQ-17](questions.md#oq-17) and [OQ-24](questions.md#oq-24) recommend
