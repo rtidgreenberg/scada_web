@@ -71,14 +71,30 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-24](#oq-24) | `ValueRequest`: deltas or full desired state? | DECIDED | HIGH | DG | DD-023, SR-003, OQ-17 |
 | [OQ-25](#oq-25) | Per-client read semantics on a shared reader — keep WIS polling at all? | DECIDED | HIGH | DG | FR-REST-003, read path |
 | [OQ-14](#oq-14) | Where does alarm limit evaluation and state live? | DECIDED | HIGH | DG | Browser + filter scope |
-| [OQ-13](#oq-13) | Is name-based tag lookup required, or is `uid` enough? | OPEN | MEDIUM | — | `ValueRequest` handling |
+| [OQ-13](#oq-13) | Is name-based tag lookup required, or is `uid` enough? | DECIDED | MEDIUM | DG | `ValueRequest` handling |
 | [OQ-16](#oq-16) | What stack for the browser interface? | OPEN | MEDIUM | — | Browser work, step 5 |
 | [OQ-17](#oq-17) | Should `ValueRequest` be keyed on `uid`? | DECIDED | MEDIUM | DG | IDL revision window |
 | [OQ-20](#oq-20) | Single source of truth for types across components? | ANSWERED | — | — | → [DD-026](design-decisions.md#dd-026) |
 | [OQ-21](#oq-21) | Are trends and a historian in scope? | DECIDED | MEDIUM | DG | Browser scope |
-| [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | READY | MEDIUM | DG | Web surface design |
+| [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | DECIDED | MEDIUM | DG | Web surface design |
 | [OQ-1](#oq-1) | RTI licensing/support position on reimplementing WIS | OPEN | MEDIUM | DG | Productization, not the PoC |
 | [OQ-26](#oq-26) | One DDS domain across the RT boundary, or two? | OPEN | MEDIUM | DG | Selector deployment, OQ-22 |
+| [OQ-27](#oq-27) | Should `ValueRequest` be keyed + `TRANSIENT_LOCAL` for phase 0? | OPEN | HIGH | DG | Control plane design, SR-003 |
+| [OQ-28](#oq-28) | `METADATA` sentinel uid: magic value or new enum? | OPEN | MEDIUM | DG | IDL contract, catalogue bootstrap |
+| [OQ-29](#oq-29) | `char stringValue[32]` vs `string<32>` in the IDL | DECIDED → [DD-040](design-decisions.md#dd-040) | HIGH | DG | Type correctness, Python/C++ interop |
+| [OQ-30](#oq-30) | Does the selector need an ACK/feedback channel? | DEFERRED | MEDIUM | DG | Command reliability guarantee |
+| [OQ-31](#oq-31) | Is WaitSet dispatch order guaranteed for simultaneous conditions? | DECIDED → [DD-041](design-decisions.md#dd-041) | MEDIUM | DG | Control-before-data invariant |
+| [OQ-32](#oq-32) | Should inbound `IdValue` reader be `BEST_EFFORT`? | DECIDED → [DD-042](design-decisions.md#dd-042) | MEDIUM | DG | Field-side backpressure on selector stall |
+| [OQ-33](#oq-33) | How is reader-cache overflow made observable? | ANSWERED → [DD-042](design-decisions.md#dd-042) | LOW | DG | Silent data loss, observability |
+| [OQ-34](#oq-34) | Single IDL source with build-system enforcement? | DECIDED → [DD-043](design-decisions.md#dd-043) | MEDIUM | DG | Type duplication between sim/ and scada_select/ |
+| [OQ-35](#oq-35) | Config YAML references non-existent `instantaneousValue` — fix or rename IDL? | OPEN | BLOCKING | DG | Gateway startup crash |
+| [OQ-36](#oq-36) | `_ws_clients` dict concurrent mutation in async event loop | OPEN | HIGH | DG | Runtime correctness |
+| [OQ-37](#oq-37) | PoC reader QoS: match the sim's RELIABLE/TRANSIENT_LOCAL, or skip metadata? | OPEN | HIGH | DG | MetaData never arrives at gateway |
+| [OQ-38](#oq-38) | No `PlcValue.xml` committed — require `rtiddsgen` or commit generated file? | OPEN | HIGH | DG | Repo unrunnable without manual step |
+| [OQ-39](#oq-39) | Poll loop vs WaitSet for the Python gateway read path | OPEN | MEDIUM | DG | CPU waste, scalability |
+| [OQ-40](#oq-40) | Gateway testability: module globals + deprecated FastAPI events | OPEN | MEDIUM | DG | Test isolation |
+| [OQ-41](#oq-41) | Programmatic types (sim) vs XML types (gateway) — interop validated? | OPEN | MEDIUM | DG | End-to-end correctness |
+| [OQ-42](#oq-42) | Test strategy: what tests does the PoC need? | OPEN | MEDIUM | DG | Regression visibility |
 | [OQ-18](#oq-18) | Should `ValueRequest` carry a `LIFESPAN`? | OPEN | LOW | — | Nothing; cheap later |
 | [OQ-22](#oq-22) | Enforce Purdue zones with DDS Security, or logically only? | OPEN — now structurally reachable via [DD-028](design-decisions.md#dd-028) | LOW | — | Deployment claims |
 | [OQ-4](#oq-4) | Is cross-topic join in the PoC? | ANSWERED | — | — | → DD-021 |
@@ -167,9 +183,13 @@ decision is needed before P1 code lands.
 **Is strict `/dds/rest1` wire compatibility required, or may we ship only
 `/api/v1`?**
 
-- **Status:** READY · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Web surface design (P3); TRD §5.1 and §5.5
 - **Raised:** 2026-07-27 · **Downgraded:** 2026-07-27 (PoC scoping)
+- **Decision:** 2026-07-27 — [DD-038](design-decisions.md#dd-038). **Option A: match WIS `/dds/rest1` surface.** Initial
+  development will use WIS as the gateway; next phase swaps scada-web in behind
+  the same API. This means the browser client is built against the WIS wire
+  format and scada-web must be compatible when it replaces WIS.
 
 **Recommendation for the PoC: option B — `/api/v1` only.** PoC framing largely
 settles this. Building a compatibility surface plus a differential conformance
@@ -439,7 +459,7 @@ written down.
 - **Status:** DECIDED · **Priority:** BLOCKING · **Owner:** DG
 - **Blocks:** Judging the outcome; secondarily the P3 scope
 - **Raised:** 2026-07-27 (PoC scoping)
-- **Decision:** 2026-07-27 — The POC demonstrates:
+- **Decision:** 2026-07-27 — [DD-030](design-decisions.md#dd-030). The POC demonstrates:
   1. GUI sends select commands (add/remove tag UIDs)
   2. scada-selector publishes selected values + metadata
   3. GUI displays those selected values in real time
@@ -489,7 +509,7 @@ clients' requested uids, or one topic/partition per client?**
 - **Status:** DECIDED · **Priority:** BLOCKING · **Owner:** DG
 - **Blocks:** scada-selector design; `SelectedValue` definition (build step 1)
 - **Raised:** 2026-07-27 ([system-architecture.md](system-architecture.md) §5)
-- **Decision:** 2026-07-27 — **Option A (one shared output topic).** Initial POC
+- **Decision:** 2026-07-27 — [DD-031](design-decisions.md#dd-031). **Option A (one shared output topic).** Initial POC
   targets a single client, so the question is moot for now. scada-web will implement
   per-client demux in the future if multiple clients are needed.
 
@@ -524,7 +544,7 @@ scada-web's demux volume without per-client entities.
 - **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** `ValueRequest` handling in scada-selector; browser tag-selection UX
 - **Raised:** 2026-07-27
-- **Decision:** 2026-07-27 — `uid`-only for POC. Name-based lookup deferred to
+- **Decision:** 2026-07-27 — [DD-032](design-decisions.md#dd-032). `uid`-only for POC. Name-based lookup deferred to
   future implementation roadmap.
 
 **Context.** `ValueRequest` carries both `uid` and `name`, but `ADD`/`DELETE` only
@@ -552,7 +572,7 @@ logging. Confirm before building either side.
 - **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** scada-selector scope; browser scope; mapping engine `<compute>` usage
 - **Raised:** 2026-07-27 ([system-architecture.md](system-architecture.md) §7)
-- **Decision:** 2026-07-27 — Out of scope for POC. Alarm/limit evaluation is future
+- **Decision:** 2026-07-27 — [DD-033](design-decisions.md#dd-033). Out of scope for POC. Alarm/limit evaluation is future
   roadmap for scada-selector.
 
 **Context.** `Limits_t` carries six thresholds (red/yellow/green high and low) plus
@@ -673,7 +693,7 @@ plus trend for the PoC and treat the mimic as separate.
 - **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** IDL revision window — cheap now, disruptive later
 - **Raised:** 2026-07-27 (latent in [DD-023](design-decisions.md#dd-023))
-- **Decision:** 2026-07-27 — **Option (a): leave unkeyed, `KEEP_ALL`.** No IDL
+- **Decision:** 2026-07-27 — [DD-034](design-decisions.md#dd-034). **Option (a): leave unkeyed, `KEEP_ALL`.** No IDL
   change. Commands queue in order. Keyed desired-state model (b) is future
   consideration if restart recovery becomes needed.
 
@@ -819,7 +839,7 @@ whether the Connext Python API can load XML types as readily.
 - **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Browser scope; possibly a fifth component
 - **Raised:** 2026-07-27
-- **Decision:** 2026-07-27 — **Option (b): client-side trend buffer.** Browser
+- **Decision:** 2026-07-27 — [DD-035](design-decisions.md#dd-035). **Option (b): client-side trend buffer.** Browser
   keeps last N minutes in memory from the WebSocket stream. No server-side
   historian. Real historian (option c) is out of scope.
 
@@ -972,7 +992,7 @@ TRD §12 P1 valid regardless.
 - **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** `ValueRequest` semantics; interacts with [DD-023](design-decisions.md#dd-023), SR-003, [OQ-17](#oq-17)
 - **Raised:** 2026-07-27 (second axis of [DD-025](design-decisions.md#dd-025))
-- **Decision:** 2026-07-27 — **Option A (deltas).** `ADD`/`DELETE` per current IDL.
+- **Decision:** 2026-07-27 — [DD-036](design-decisions.md#dd-036). **Option A (deltas).** `ADD`/`DELETE` per current IDL.
   Single-client POC has no restart/reconciliation concerns. Keyed or
   desired-state model can be revisited for multi-client robustness later.
 
@@ -1026,7 +1046,7 @@ we keep the WIS polling surface at all?**
 - **Blocks:** FR-REST-003; scada-web read path design (P3)
 - **Raised:** 2026-07-27, clarifying
   [architecture-comparison.md](architecture-comparison.md) §3.1
-- **Decision:** 2026-07-27 — **Option A (latest-value + WebSocket push).** POC is
+- **Decision:** 2026-07-27 — [DD-037](design-decisions.md#dd-037). **Option A (latest-value + WebSocket push).** POC is
   single client; no WIS polling surface, no per-client state. Multi-client
   concerns deferred.
 
@@ -1131,6 +1151,509 @@ the middleware.
 audience, or when the sim moves to separate hardware from the web tier — either
 makes B the honest default. Discard C unless partitions are already being used for
 something else.
+
+---
+
+### OQ-27
+**Should `ValueRequest` be keyed on `uid` with `TRANSIENT_LOCAL` durability for phase 0?**
+
+- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** Control plane design, SR-003 reconciliation, OQ-17, OQ-24
+- **Raised:** 2026-07-27 (architecture review of scada-select)
+
+**Context.** The current design uses an unkeyed command stream with `RELIABLE` +
+`KEEP_ALL`. This makes the selector stateless across restarts (the table is lost
+and must be reconciled by scada-web via SR-003). Three consequences:
+
+1. **Unbounded queue growth.** `KEEP_ALL` on the request reader has no resource
+   limit stated — if scada-web sends faster than the selector processes, the queue
+   grows without bound.
+2. **Reconciliation complexity.** scada-web must track its full outbound command set
+   and re-drive it on selector restart. This is the entire SR-003 code path.
+3. **No introspection.** The selector cannot answer "what is my current state?" to a
+   monitoring tool — it has no durable truth, only the residue of processed commands.
+
+OQ-17 and OQ-24 already raise this but frame it as optional. The question here is
+sharper: **is the cost of the unkeyed design acceptable for phase 0, or does it
+complicate the PoC enough to justify doing it right now?**
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Keep unkeyed, phase 0** | Accept SR-003, accept unbounded queue risk, ship faster. Retrofit keyed requests later (wire protocol change). |
+| B | **Keyed `{@key uid, enabled, period_ms}` + `TRANSIENT_LOCAL`** now | Deletes SR-003, deletes KEEP_ALL hazard, selector recovers its table from middleware on restart. IDL change now. |
+| C | **Keyed but `VOLATILE`** | Idempotent writes (re-ADD is safe), but no restart recovery — still need SR-003 or equivalent. Half the benefit. |
+
+**Recommendation: B.** The IDL is not yet shipped. The wire protocol is not yet
+frozen. The SR-003 reconciliation code is the single most complex interaction
+between scada-web and the selector, and deleting it simplifies both sides. The cost
+is one IDL revision now, which costs nothing because the IDL is already in flux.
+
+---
+
+### OQ-28
+**Should the "give me all metadata" request use a sentinel uid value, or a new enum?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** IDL contract, catalogue bootstrap path (scada-select §4.4)
+- **Raised:** 2026-07-27 (architecture review of scada-select)
+
+**Context.** The catalogue bootstrap requires scada-web to ask "send me all
+metadata" because durability cannot deliver it on a best-effort link (DD-029). The
+current plan uses a magic `uid` value (-1 or 0) to mean "all" — an in-band signal
+that constrains the uid space and requires every component to know the convention.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Sentinel uid** (e.g., `-1` or `0`) | No IDL change; convention documented in system-architecture.md. Risk: collision with real uid values; every consumer must check. |
+| B | **New enum value `METADATA_ALL`** in `Command_t` | IDL change; clean separation of "one uid" vs "all uids". The `uid` field is ignored when `command == METADATA_ALL`. |
+| C | **Separate topic for catalogue requests** | Over-engineered for one command variant; rejected. |
+
+**Recommendation: B.** It is a one-line IDL addition (`METADATA_ALL` in the enum),
+costs nothing at this stage, and removes the ambiguity permanently.
+
+---
+
+### OQ-29
+**Should `Value_t`'s string arm be `char stringValue[32]` or `string<32>`?**
+
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** Type correctness, Python/C++ interop, field_simulation encoding
+- **Raised:** 2026-07-27 (architecture review of scada-select)
+- **Decision:** 2026-07-27 — [DD-040](design-decisions.md#dd-040). **Option A: keep `char[32]`.**
+  Fixed memory allocation is a deliberate real-time constraint for the exercise.
+
+**Context.** The IDL currently defines the string arm of `Value_t` as:
+```idl
+char stringValue[MAX_STRING_VALUE_LENGTH];  // fixed char array
+```
+
+This is a **fixed-size char array**, not a bounded string. Consequences:
+
+- In C++11 codegen: `std::array<char, 32>` — no null-termination guarantee,
+  comparison requires `strncmp`.
+- In Python DynamicData: requires `set_char_values()` with null-padded sequences
+  (already observed as painful in `plc_types.py`).
+- Wire format: always 32 bytes, regardless of actual string length.
+- No semantic "this is text" signal — it looks like raw bytes to introspection tools.
+
+If the intent is "a string value up to 32 characters," the IDL should use
+`string<32>`, which:
+- Generates `std::string` (bounded) in C++11
+- Works naturally with Python's string APIs
+- Is null-terminated by contract
+- Uses only the bytes needed on the wire (with a length prefix)
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Keep `char[32]`** | Wire-compatible with existing PLC protocols that send fixed-length fields. Document null-padding contract. Accept the ergonomic cost in Python and the comparison cost in C++. |
+| B | **Change to `string<32>`** | Natural string semantics everywhere. Breaks wire compat with anything already using the char-array encoding. Smaller on the wire for short strings. |
+| C | **Both** — `char[32]` for raw PLC wire, with a helper that converts to/from `string<32>` at the boundary | Over-engineered; the sim is the only producer. |
+
+**Recommendation: B**, unless there is a real PLC protocol constraint requiring
+fixed-width char fields. The sim is the only publisher today and it already fights
+the char-array encoding. Change it now while the wire format is uncommitted.
+
+---
+
+### OQ-30
+**Does the selector need an acknowledgment or feedback channel back to scada-web?**
+
+- **Status:** DEFERRED · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Command reliability guarantee, error observability
+- **Raised:** 2026-07-27 (architecture review of scada-select)
+- **Deferred:** 2026-07-27. PoC uses a preset uid range (DD-039); ADD/DELETE are
+  optional refinements. A lost command is visible (tag stays on/off incorrectly)
+  but not catastrophic. Revisit for multi-client production use.
+
+**Context.** scada-web sends `ValueRequest` commands (ADD/DELETE/METADATA) and never
+learns whether the selector processed them. Under `RELIABLE` delivery, the
+transport guarantees the bytes arrived — but not that the application logic
+succeeded. Failure modes:
+
+- Selector crashes after transport ACK but before processing → command lost.
+- Selector rejects a command (e.g., unknown uid for METADATA) → silent failure.
+- Selector restarts → entire table lost, scada-web does not learn this happened
+  unless it detects absence of expected data.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **No ACK — status quo** | Simple; rely on SR-003 reconciliation and staleness detection. Accept that command failures are invisible. |
+| B | **Selector publishes its selection table as a `TRANSIENT_LOCAL` keyed topic** | scada-web can read the selector's truth, detect divergence, and re-drive. No per-command ACK needed — eventual consistency via state publication. |
+| C | **Per-command ACK topic** | Complex; request-reply pattern over DDS; significant protocol overhead for little benefit over B. |
+
+**Recommendation: A for phase 0.** If OQ-27 is answered as B (keyed + durable
+requests), the middleware itself becomes the ground truth and this question is
+largely retired — the selector's subscription set is the content of the durable
+topic, readable by anyone. Revisit only if OQ-27 stays as A.
+
+---
+
+### OQ-31
+**Is WaitSet dispatch order guaranteed when multiple conditions trigger simultaneously?**
+
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** The control-before-data invariant (scada-select §3.5)
+- **Raised:** 2026-07-27 (architecture review of scada-select)
+- **Decision:** 2026-07-27 — [DD-041](design-decisions.md#dd-041). **Option B: explicit
+  two-phase drain.** `request_reader.take()` before `waitset.dispatch()`
+  guarantees control-before-data regardless of middleware dispatch order.
+
+**Context.** The architecture relies on control commands being processed before data
+samples in the same dispatch pass (§3.5: "a tag enabled in a batch is forwarded in
+the same dispatch pass rather than one pass later"). The claimed mechanism is that
+the control ReadCondition is *attached first* to the WaitSet.
+
+`WaitSet::dispatch()` calls handlers for all triggered conditions, but the Connext
+documentation does not specify that handlers fire in attachment order. The DDS
+specification (§7.1.2.1.6) says `wait()` returns the *set* of triggered conditions
+— unordered.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Rely on attachment order** | Works today (empirically); may break silently on a Connext upgrade. One-pass lag for a newly-enabled tag is benign anyway. |
+| B | **Explicit two-phase: drain control, then dispatch data** | Guaranteed correct regardless of middleware behavior. Slightly more code but trivial. |
+| C | **Accept one-pass lag** | Document that a tag enabled mid-batch may not be forwarded until the next pass. Consequence: ~100ms latency on first sample after ADD, which is invisible to a human. |
+
+**Recommendation: C, with B as the implementation if it costs nothing.** The
+practical consequence of wrong ordering is one pass of latency on a freshly-enabled
+tag — invisible at display rates. But if B is two extra lines (`request_reader.take()`
+before `waitset.dispatch()`), just do it.
+
+---
+
+### OQ-32
+**Should the inbound `PLC::IdValue` reader be `BEST_EFFORT` rather than `RELIABLE`?**
+
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Field-side backpressure behavior when the selector stalls
+- **Raised:** 2026-07-27 (architecture review of scada-select)
+- **Decision:** 2026-07-27 — [DD-042](design-decisions.md#dd-042). **Option D: RELIABLE
+  with bounded resource limits + `SampleLostStatus` monitoring.** Gives burst
+  headroom without unbounded blocking; overflow is observable.
+
+**Context.** The architecture prevents web→field backpressure (DD-029, §3.8). But
+if the **selector itself** stalls (debugger, overload, long computation), the
+field-side `RELIABLE` writer to `PLC::IdValue` will eventually block the sim's
+publish thread when the selector's reader cache fills — because the selector is the
+only subscriber, and reliable delivery requires the subscriber to acknowledge.
+
+The selector already discards most inbound samples via rate limiting (§3.3). Losing
+them one hop earlier (at the transport layer rather than the application layer) has
+the same user-visible outcome: the display shows the latest value it received.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Keep `RELIABLE` inbound** | Guarantees the selector sees every sample the sim publishes, which matters for lifecycle events (dispose/unregister must not be lost). A stalled selector blocks the sim — accepted if the selector is treated as infrastructure that must not stall. |
+| B | **`BEST_EFFORT` inbound for values, `RELIABLE` for lifecycle** | Not possible on a single reader — DDS reliability is per-DataReader, not per-sample. Would require splitting value and lifecycle into separate topics. |
+| C | **`BEST_EFFORT` inbound** | Sim never blocks. Lifecycle events (dispose) can be lost in transit, but §3.4 already acknowledges they can be lost on the *outbound* hop. The selector is already not the reliability guarantee for lifecycle — scada-web's staleness timeout is. |
+| D | **`RELIABLE` with bounded resource limits and `on_sample_lost` monitoring** | Sim blocks only if the selector falls behind by more than N samples. Gives the selector breathing room without going fully best-effort. |
+
+**Recommendation: D for phase 0, C as future consideration.** A bounded reliable
+reader with `max_samples_per_instance` set to a reasonable depth (e.g., 4–8 at
+expected publish rate) gives the selector a burst buffer without unbounded blocking.
+Monitor `SampleLostStatus` to know when the selector is falling behind. Going fully
+best-effort (C) is the cleaner long-term answer but loses lifecycle guarantees that
+may matter.
+
+---
+
+### OQ-33
+**How should reader-cache overflow (silent sample loss) be made observable?**
+
+- **Status:** ANSWERED · **Priority:** LOW · **Owner:** DG
+- **Blocks:** Observability, silent data loss detection
+- **Raised:** 2026-07-27 (architecture review of scada-select)
+- **Decision:** 2026-07-27 — subsumed by [DD-042](design-decisions.md#dd-042).
+  `SampleLostStatus` is polled each read cycle and logged when non-zero.
+
+**Context.** A `KEEP_LAST` reader with a shallow depth silently overwrites unread
+samples under load. The selector has no metric for "samples that overflowed my
+cache before I could read them." This is invisible data loss — the selector cannot
+know what it never saw.
+
+`SampleLostStatus` (accessible via `DataReader::sample_lost_status()`) reports the
+total and incremental count of samples lost by the reader, including cache
+overflows. It is available in the Modern C++ API.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Poll `SampleLostStatus` periodically and log/export** | Simple; adds one call per read cycle or on a timer. No new topics. |
+| B | **Use a Listener with `on_sample_lost` callback** | Immediate notification; but listeners run on the middleware's internal thread, which complicates the single-threaded design. |
+| C | **Defer to future observability work** | Accept the blind spot for the PoC. Document as a known limitation. |
+
+**Recommendation: A.** One line per read cycle: check `sample_lost_status()`, log
+if non-zero. No new infrastructure needed. Wire it to a counter for the eventual
+metrics surface (§9 future work).
+
+---
+
+### OQ-34
+**How should the IDL be shared between sim/ and scada_select/ with build-system enforcement?**
+
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Type duplication risk between components
+- **Raised:** 2026-07-27 (architecture review of scada-select)
+- **Decision:** 2026-07-27 — [DD-043](design-decisions.md#dd-043). **Option B+D: move IDL
+  to `dds/idl/`; CMake generates both C++ types and XML from it.**
+
+**Context.** `PlcValue.idl` lives in `sim/` and must also be consumed by
+`scada_select/`'s CMake build (for `rtiddsgen`) and by the Python runtime (via
+`rtiddsgen -convertToXml`). The current plan (§3.7) says "point CMakeLists.txt at
+`../sim/PlcValue.idl`" — a fragile relative path that breaks if either directory
+moves, with no build-system check that the two consumers see the same file.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Relative path `../sim/PlcValue.idl`** in CMakeLists.txt | Works now; breaks on restructure; no enforcement. |
+| B | **Top-level `idl/` directory** with both CMake and Python targeting it | Single source of truth, both builds reference the same path. Slight project restructure. |
+| C | **CMake `FetchContent` or symlink** from scada_select to sim | Adds indirection; symlinks are fragile across platforms. |
+| D | **`rtiddsgen -convertToXml` as a CMake custom target** that also produces the XML for Python | Both C++ types and Python XML are generated from one IDL in one build step. Strongest enforcement. |
+
+**Recommendation: B+D.** Move `PlcValue.idl` to a top-level `idl/` directory. The
+scada_select CMake build runs `rtiddsgen` (C++11) against it; a second target runs
+`rtiddsgen -convertToXml` to produce the XML that `plc_types.py` and `gateway.py`
+load. One file, two generated outputs, enforced by the build system.
+
+---
+
+### OQ-35
+**Config YAML references non-existent `instantaneousValue` — fix or rename IDL field?**
+
+- **Status:** OPEN · **Priority:** BLOCKING · **Owner:** DG
+- **Blocks:** Gateway startup (crash on first sample)
+- **Raised:** 2026-07-27 (architecture review, ISS-001)
+
+**Context.** `scada_web/config.yaml` view `tag_value` maps
+`wire: instantaneousValue` but the `IdValue` struct in `PlcValue.idl` has
+`rawValue`, not `instantaneousValue`. The gateway will throw at runtime when the
+mapping engine (or even `_sample_to_dict`) tries to access a non-existent
+DynamicData member path.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Fix the config** — change `instantaneousValue` to `rawValue` | Trivial; matches the IDL as-is. |
+| B | **Rename the IDL field** to `instantaneousValue` | Breaks the sim's `plc_publisher.py` and any existing subscriber. |
+
+**Recommendation: A.** The config has a typo. The IDL is the source of truth.
+
+---
+
+### OQ-36
+**`_ws_clients` dict concurrent mutation in the async event loop — what pattern to use?**
+
+- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** Runtime correctness under client churn
+- **Raised:** 2026-07-27 (architecture review, ISS-002)
+
+**Context.** `server.py` iterates `_ws_clients` in `_on_dds_sample()` (called
+from the gateway's async read loop) while the WebSocket endpoint adds/removes
+entries on connect/disconnect. Both run in the same event loop, so no OS-level
+race, but `await` points interleave tasks — a disconnect handled between the
+`list(...)` copy and the `_ws_send` task's execution can leave a stale reference.
+
+The `list(_ws_clients.items())` snapshot is *almost* sufficient in CPython (dict
+iteration under GIL is atomic for a single `list()` call), but correctness
+depends on a CPython implementation detail that is not guaranteed by the language.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Per-client asyncio.Queue** — gateway pushes to each queue; client task drains it | Backpressure per client; clean disconnect; no shared dict iteration. Slightly more memory. |
+| B | **`asyncio.Lock` around `_ws_clients`** | Correct; adds lock acquisition to the hot path (one per sample × clients). |
+| C | **Accept the CPython snapshot** — document it, add a try/except in `_ws_send` | Pragmatic for PoC; not portable to other runtimes (PyPy, free-threading). |
+
+**Recommendation: A for production, C for the PoC** with a `# TODO` noting the
+debt. The per-client queue pattern also naturally solves slow-consumer
+backpressure (drop oldest if queue full).
+
+---
+
+### OQ-37
+**PoC reader QoS: match the sim's RELIABLE/TRANSIENT_LOCAL, or accept missing metadata?**
+
+- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** MetaData never arrives at gateway if it starts after the sim
+- **Raised:** 2026-07-27 (architecture review, ISS-005)
+
+**Context.** `gateway.py` creates DataReaders with **default QoS** (BEST_EFFORT +
+VOLATILE on most Connext installs). The sim's MetaData writer is RELIABLE +
+TRANSIENT_LOCAL. A VOLATILE reader cannot receive TRANSIENT_LOCAL history — so if
+the gateway starts after the sim, it never gets MetaData.
+
+Per system-architecture.md §4.3 / DD-029, the **final design** deliberately
+uses BEST_EFFORT + VOLATILE on the web side (after the selector exists and the
+catalogue is requested). But **right now** the gateway talks directly to the sim
+(the selector doesn't exist), so it needs matching QoS to receive the startup
+burst.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Match the sim: RELIABLE + TRANSIENT_LOCAL** on MetaData reader, RELIABLE + VOLATILE on IdValue reader | Works now; must change when selector lands. |
+| B | **Keep defaults** but require the sim to re-publish MetaData periodically | Sim change; defeats the "once at startup" pattern. |
+| C | **Add QoS profiles to config.yaml** and reference them per topic | General solution; reader QoS is declarative. Requires gateway code to apply profiles. |
+
+**Recommendation: C, implemented with A's values for now.** The config already
+has a `qos_profile` field per topic — implement it in `_create_readers()`.
+
+---
+
+### OQ-38
+**No `PlcValue.xml` committed — require `rtiddsgen` or commit generated file?**
+
+- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** Repo is unrunnable without a manual `rtiddsgen` step
+- **Raised:** 2026-07-27 (architecture review, ISS-007)
+
+**Context.** `scada_web/config.yaml` references `sim/PlcValue.xml` but no such
+file exists in the repo. The sim uses programmatic type building (`plc_types.py`),
+which works for the publisher, but the gateway needs the XML file. Anyone
+cloning the repo cannot run `python -m scada_web` without first running
+`rtiddsgen -convertToXml sim/PlcValue.idl -d sim/`.
+
+Related to [OQ-34](#oq-34) (single IDL source with build enforcement), but that
+question is about the long-term build system. This is about **right now**: can
+someone clone and run?
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Commit the generated XML** | Works immediately; generated file in VCS (drift risk, but .gitattributes can mark it). |
+| B | **Add a `make xml` / setup script** that generates it | Repo stays clean; requires tooling. |
+| C | **Remove XML dependency** — gateway uses programmatic types like the sim | Eliminates the file entirely; gateway shares `plc_types.py`'s output. QosProvider path goes away. |
+
+**Recommendation: C for the PoC.** The gateway and sim are in the same repo and
+already share `PlcValue.idl` semantics. Making the gateway load types from the
+same `plc_types.py` module (or import `build_plc_types()`) eliminates the XML
+dependency, the `rtiddsgen` prerequisite, and OQ-41's interop concern — all in
+one move. Reserve XML-based type loading for when scada-web becomes a standalone
+C++ service. Validate with B as fallback if QosProvider features are needed.
+
+---
+
+### OQ-39
+**Poll loop vs WaitSet for the Python gateway read path**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** CPU waste at scale; not blocking for PoC
+- **Raised:** 2026-07-27 (architecture review, ISS-009)
+
+**Context.** `gateway.py` `_read_loop()` polls all readers every 50ms regardless
+of data availability. With 5 tags at 1 Hz, the loop runs ~20× per publish cycle
+doing nothing. Connext Python supports `WaitSet` with `ReadCondition` which
+would wake only on data arrival.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Keep 50ms poll** | Simple; wastes CPU; acceptable for PoC with 5 tags. |
+| B | **WaitSet with ReadCondition per reader** | Correct; requires running the WaitSet in a thread (WaitSet.wait is blocking) and posting results to the asyncio loop. |
+| C | **Status condition + asyncio integration** | Ideal but may not be supported by `rti.connextdds` Python bindings. |
+
+**Recommendation: A for now** with a `# TODO` noting the path to B. The PoC has
+5 tags at 1 Hz — 50ms poll is harmless. Revisit when tag count or rate increases.
+
+---
+
+### OQ-40
+**Gateway testability: module globals + deprecated FastAPI events**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Test isolation; future FastAPI upgrade
+- **Raised:** 2026-07-27 (architecture review, ISS-015)
+
+**Context.** `server.py` stores `_gateway`, `_interest`, `_config`, `_ws_clients`
+as module-level globals set by `create_app()`. This makes it impossible to
+instantiate two apps in one process (needed for parallel test isolation) and
+couples test setup to import order. Additionally, `@app.on_event("startup")` is
+deprecated in FastAPI ≥0.109 in favor of `lifespan` context managers.
+
+**Options.**
+
+| | Option | Consequence |
+|---|---|---|
+| A | **Move state to `app.state`** + use `lifespan` | Standard FastAPI pattern; testable; no deprecation warnings. |
+| B | **Keep globals** for PoC simplicity | Works; tests must mock at module level; deprecation warning in logs. |
+
+**Recommendation: A.** Small refactor, large testability gain. Do it when adding
+the first test (OQ-42), not as a separate task.
+
+---
+
+### OQ-41
+**Programmatic types (sim) vs XML types (gateway) — is interop validated?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** End-to-end correctness (sim → gateway)
+- **Raised:** 2026-07-27 (architecture review, ISS-016)
+
+**Context.** The sim builds types programmatically via `plc_types.py`
+(StructType, UnionType, etc.); the gateway plans to load them from XML via
+`QosProvider`. These must produce **wire-compatible** types for DDS discovery to
+match endpoints. Potential mismatches:
+
+- Module scoping: programmatic types have no module prefix by default
+  (`"MetaData"`) vs XML which may emit `"PLC::MetaData"`.
+- Type extensibility annotations (FINAL, APPENDABLE, MUTABLE) defaulting
+  differently between programmatic construction and rtiddsgen output.
+- The `@nested` annotation on `Value_t` may or may not propagate to XML.
+
+**Resolution path:** If OQ-38 resolves as option C (gateway uses programmatic
+types), this question becomes moot — both sides use the same type objects. If
+XML is retained, a simple integration test (sim publishes, gateway subscribes,
+verify samples arrive) validates interop.
+
+**Recommendation:** Resolve OQ-38 first. If C, mark this MOOT. If A/B, write the
+integration test.
+
+---
+
+### OQ-42
+**Test strategy: what tests does the PoC need?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Regression visibility; confidence in refactoring
+- **Raised:** 2026-07-27 (architecture review, ISS-018)
+
+**Context.** No tests exist anywhere in the repo. `interest.py` is pure Python
+and trivially unit-testable. `config.py`'s loader and validator are testable
+without DDS. The gateway and server need either mocking or a live DDS domain.
+
+**Options (non-exclusive).**
+
+| Layer | What | Effort |
+|---|---|---|
+| Unit | `interest.py` — subscribe/unsubscribe/disconnect/reconcile | Trivial; no deps |
+| Unit | `config.py` — valid/invalid YAML loading, cross-ref validation | Trivial; no deps |
+| Integration | sim publishes → gateway receives → WebSocket client gets JSON | Needs DDS; ~1 hour |
+| Smoke | `python -m scada_web --config ...` starts without error, `/health` returns 200 | Needs DDS for participant creation |
+
+**Recommendation:** Start with the two unit-test modules (interest, config).
+Add the smoke test when the gateway is runnable end-to-end. Integration test
+when the mapping engine lands (it's the thesis — if it's not tested, it's not
+proven).
 
 ---
 

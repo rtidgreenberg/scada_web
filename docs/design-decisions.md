@@ -1500,3 +1500,254 @@ would indicate a network problem this decision is not the right fix for.
 [Resending DDS Samples to Late-Joiners with the Durability QosPolicy](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/manuals/connext_dds_professional/users_manual/users_manual/Resending_DDS_Samples_to_Late_Joiners_wi.htm) ·
 [KB: Why does my DDS DataReader miss the first few samples?](https://community.rti.com/kb/why-does-my-dds-datareader-miss-first-few-samples) — "To enable this level of durability, you must also set the Reliability QoS policy kind to DDS_RELIABLE_RELIABILITY_QOS" ·
 [Basic QoS (Getting Started 7.7.0)](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/manuals/connext_dds_professional/getting_started_guide/cpp11/intro_qos.html) — "Late-joining DataReaders that also use reliability and Transient Local durability are automatically sent historical data"
+
+---
+
+### DD-030
+**POC success criterion: end-to-end read path from sim through browser.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-11](questions.md#oq-11)
+
+**Decision.** The POC demonstrates:
+
+1. GUI sends select commands (add/remove tag UIDs)
+2. scada-selector publishes selected values + metadata
+3. GUI displays those selected values in real time
+4. Configuration is YAML, as simple as possible
+
+No mapping engine, no expression language, no write-through, no round-trip
+correctness proofs. Success = real DDS data flowing sim → scada-selector →
+scada-web → browser.
+
+---
+
+### DD-031
+**POC uses one shared output topic (single client).**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-12](questions.md#oq-12) · **Extends:** [DD-020](#dd-020)
+
+**Decision.** scada-selector publishes one shared output topic carrying the union
+of all requested UIDs. The initial POC targets a single client, making per-client
+demux moot. scada-web will implement per-client demux if multiple clients are
+added later.
+
+---
+
+### DD-032
+**`uid`-only addressing for POC; name-based lookup deferred.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-13](questions.md#oq-13)
+
+**Decision.** `ValueRequest` uses `uid` only for `ADD`/`DELETE`. The `name` field
+is retained for logging but is not used as a lookup key. Name-based tag selection
+(name→uid resolution) is deferred to the future implementation roadmap.
+
+---
+
+### DD-033
+**Alarm/limit evaluation is out of scope for POC.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-14](questions.md#oq-14)
+
+**Decision.** No alarm limit evaluation, no severity field on `SelectedValue`, no
+ISA-18.2 state machine. The POC passes through raw values. Alarm evaluation is
+future roadmap for scada-selector.
+
+---
+
+### DD-034
+**`ValueRequest` remains unkeyed; commands queue via `KEEP_ALL`.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-17](questions.md#oq-17) · **Reinforces:** [DD-023](#dd-023)
+
+**Decision.** `ValueRequest` has no `@key`. It remains a single-instance command
+stream with `KEEP_ALL` reliability per DD-023. The keyed desired-state model
+(option b from OQ-17) is a future consideration if restart recovery becomes
+needed.
+
+---
+
+### DD-035
+**Client-side trend buffer; no server-side historian.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-21](questions.md#oq-21)
+
+**Decision.** Trends are implemented as a client-side memory buffer in the
+browser — the browser accumulates the last N minutes from the WebSocket stream.
+No server-side historian, no query API. A real historian (Purdue Level 3) is
+out of scope.
+
+---
+
+### DD-036
+**`ValueRequest` uses incremental deltas (`ADD`/`DELETE`).**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-24](questions.md#oq-24)
+
+**Decision.** `ValueRequest` carries one command per sample (`ADD(uid)` or
+`DELETE(uid)`) per the current IDL. The desired-state and keyed-boolean
+alternatives are deferred — the single-client POC has no restart or reconciliation
+concerns that would benefit from idempotent state publishing.
+
+---
+
+### DD-037
+**Latest-value + WebSocket push; no WIS polling surface.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-25](questions.md#oq-25)
+
+**Decision.** scada-web provides current-value reads and pushes changes via
+WebSocket. `KEEP_LAST 1` + `read()` on the shared reader. The WIS polling surface
+(`removeFromReaderCache`, `sampleStateMask`, `viewStateMask`) is dropped — those
+semantics are meaningless on a shared reader. The POC is single-client, so
+per-client state tracking is not needed.
+
+---
+
+### DD-038
+**Match WIS `/dds/rest1` wire format; initial dev uses WIS, scada-web replaces it.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-3](questions.md#oq-3)
+
+**Decision.** The browser client is built against the WIS `/dds/rest1` wire
+format. Initial development uses WIS as the gateway. scada-web replaces WIS in
+the next phase, implementing the same API surface so the browser is unaffected
+by the swap.
+
+---
+
+### DD-039
+**PoC selector pre-enables a fixed uid range (100–500); no catalogue bootstrap.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Defers:** [OQ-28](questions.md#oq-28)
+
+**Decision.** For the initial PoC the selector starts with uids 100–500
+pre-enabled in the selection table (configurable via CLI flag, e.g.
+`--uid-range 100 500`). No `METADATA_ALL` command is needed — the sim publishes
+within this range and the selector forwards all of them from startup.
+
+**Consequences.**
+
+- The catalogue bootstrap problem (scada-web asking "give me all metadata" over
+  a best-effort link) does not arise — metadata for uids in the range is forwarded
+  unconditionally as it arrives from the sim.
+- `ValueRequest` ADD/DELETE remains available to narrow or widen selection within
+  the range at runtime, but is not required for initial operation.
+- The `METADATA_ALL` enum value (OQ-28 option B) is deferred to the roadmap.
+- scada-web knows the uid range by configuration, not by discovery.
+
+**Trigger to revisit:** when the uid space becomes dynamic or open-ended.
+
+---
+
+### DD-040
+**`Value_t` string arm keeps `char[32]` — fixed memory allocation.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-29](questions.md#oq-29)
+
+**Decision.** `char stringValue[MAX_STRING_VALUE_LENGTH]` stays as a fixed-size
+array. Fixed memory allocation on the data path is a deliberate real-time
+constraint for this exercise — no heap allocation per sample.
+
+**Consequences.**
+
+- C++: generated as `std::array<char, 32>`; comparison via `strncmp` or
+  `std::string_view`.
+- Python: access via `set_char_values()`/`get_char_values()` with null-padding;
+  the `set_value_t` helper in `plc_types.py` encapsulates this.
+- Wire: always 32 bytes regardless of content length.
+- Convention: values shorter than 32 chars are **null-padded** (trailing `'\0'`).
+  Consumers must use length-aware comparison, not bare `==`.
+
+---
+
+### DD-041
+**Explicit two-phase dispatch: drain control reader before WaitSet dispatch.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-31](questions.md#oq-31)
+
+**Decision.** The selector's main loop explicitly takes from the control reader
+(`request_reader.take()`) **before** calling `waitset.dispatch()`, rather than
+relying on condition attachment order. This guarantees control-before-data
+regardless of the middleware's internal dispatch ordering, which is unspecified
+by both the DDS standard and RTI's documentation.
+
+**Pattern:**
+
+```cpp
+while (running) {
+    // Phase 1: drain control — guaranteed first
+    for (const auto &s : request_reader.take()) {
+        if (!s.info().valid()) continue;
+        // process ADD/DELETE/METADATA
+    }
+    // Phase 2: dispatch data (+ any control that arrived mid-phase-1)
+    waitset.dispatch(dds::core::Duration::from_millisecs(100));
+}
+```
+
+**Why.** `WaitSet::dispatch()` does not guarantee handler invocation order when
+multiple conditions trigger simultaneously. RTI confirmed this is unspecified.
+The practical consequence of wrong ordering is ~100ms first-sample delay on a
+freshly-enabled tag (invisible at display rates), but the two-line fix removes
+the ambiguity entirely at zero cost.
+
+---
+
+### DD-042
+**Inbound `IdValue` reader: RELIABLE with bounded resource limits.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-32](questions.md#oq-32)
+
+**Decision.** The selector's inbound `PLC::IdValue` reader stays `RELIABLE` but
+with bounded `ResourceLimits` (`max_samples_per_instance` = 4–8 at expected
+publish rate). This gives the selector burst headroom without allowing a stalled
+selector to block the sim's writer indefinitely.
+
+**Monitoring:** poll `DataReader::sample_lost_status()` each read cycle and log
+non-zero counts. This makes cache overflow visible rather than silent (also
+addresses [OQ-33](#oq-33)).
+
+**Why not BEST_EFFORT.** Lifecycle events (dispose/unregister) must not be
+silently lost on the field side — a disposed tag must reach the selector so it
+can propagate the retraction. BEST_EFFORT would make lifecycle loss a normal
+condition on both hops rather than just the outbound hop (DD-029).
+
+**Why bounded.** Without resource limits, a RELIABLE + KEEP_LAST reader with
+depth N still holds at most N samples per instance, but the writer's send window
+can still fill if the reader is not acknowledging — blocking the sim. Bounded
+resource limits cap the total memory the reader will allocate, and once full the
+middleware drops the oldest unread sample (KEEP_LAST semantics) rather than
+applying backpressure to the writer indefinitely.
+
+---
+
+### DD-043
+**IDL lives in `dds/idl/`; both C++ and XML types are generated from it.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-34](questions.md#oq-34)
+
+**Decision.** `PlcValue.idl` moves to `dds/idl/PlcValue.idl` — a system-level
+location outside any single component. Both consumers generate from this one file:
+
+- `scada_select/CMakeLists.txt` runs `rtiddsgen -language C++11` against it for
+  compiled types.
+- A second CMake target (or standalone script) runs `rtiddsgen -convertToXml` to
+  produce `PlcValue.xml` for the Python components (`plc_types.py`, `gateway.py`).
+
+**Layout:**
+
+```
+dds/
+  idl/
+    PlcValue.idl          ← single source of truth
+scada_select/
+  CMakeLists.txt          ← points at ${PROJECT_SOURCE_DIR}/../dds/idl/PlcValue.idl
+sim/
+  plc_types.py            ← loads generated XML (or keeps programmatic build)
+scada_web/
+  gateway.py              ← loads generated XML via QosProvider
+```
+
+**Enforcement:** if the IDL changes and the build is re-run, both outputs
+regenerate. No component can silently use a stale type definition.
