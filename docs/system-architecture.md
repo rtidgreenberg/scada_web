@@ -421,11 +421,6 @@ Two IDL details the engine must handle concretely:
   NUL-trimming. [sim/plc_types.py](../sim/plc_types.py) already documents this
   and works around it on the publish side; the view needs the inverse. This is a
   concrete instance of FR-TYPE-005.
-- **`KIND_FLOAT32` is declared as IDL `double`.** Preserved deliberately in the
-  sim to match the real IDL. Consequence: float32 and float64 are
-  indistinguishable on the wire, so a view must not claim to report which one it
-  received. Worth noting in the published view schema rather than silently
-  papering over.
 
 ### 6.2 Correlation: reference-data lookup, not a join
 

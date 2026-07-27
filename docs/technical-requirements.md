@@ -454,12 +454,11 @@ land correctly on the DDS types underneath.
   union discriminators MUST be mappable. **This is the engine's first job, not a
   completeness item** — in the actual data model every value is a `Value_t` union
   discriminated over string/int32/int64/float32/float64, so union-to-scalar
-  projection must work before anything is demonstrable. Two concrete cases from
+  projection must work before anything is demonstrable. One concrete case from
   [sim/PlcValue.idl](../sim/PlcValue.idl): the string branch is `char[32]`, not
   `string<32>`, and so needs an explicit char-array-to-string decode with
-  NUL-trimming rather than JSON's array-of-chars; and `KIND_FLOAT32` is declared
-  as IDL `double`, so a view MUST NOT claim to report which float width it
-  received. See [system-architecture.md](system-architecture.md) §6.1.
+  NUL-trimming rather than JSON's array-of-chars. See
+  [system-architecture.md](system-architecture.md) §6.1.
 - **FR-XF-006** Sequence ⇄ array reshaping MUST be supported, with a declared
   policy when a source exceeds a bounded destination (`error`, `truncate`).
 - **FR-XF-007** Constant injection and default values for unmapped view members
