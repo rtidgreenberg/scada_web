@@ -1,0 +1,3 @@
+[submodule "references/act-sim-scope-infra"]
+	path = references/act-sim-scope-infra
+	url = https://github.com/rtidgreenberg/act-sim-scope-infra.git

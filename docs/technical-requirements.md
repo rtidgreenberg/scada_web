@@ -12,7 +12,13 @@
 > are [PoC]. See [DD-018](design-decisions.md#dd-018) for what this scoping
 > does and does not change.
 
+**Scope of this document: the scada-web component only.** The deliverable is four
+components — scada-sim, scada-selector, scada-web, and a browser interface. See
+[system-architecture.md](system-architecture.md) for the system, the topic
+contracts between components, and what scada-web is *not* responsible for.
+
 **Companion documents**
+- [system-architecture.md](system-architecture.md) — the four-component system and its interfaces
 - [questions.md](questions.md) — open questions register (canonical; supersedes §11.2)
 - [design-decisions.md](design-decisions.md) — decision log; the canonical record of *why*
 - [mapping-dsl.md](mapping-dsl.md) — mapping language specification (§6 detail)
@@ -312,8 +318,17 @@ Requirement IDs are stable. `MUST` / `SHOULD` / `MAY` per RFC 2119.
 - **FR-REST-002** The service MUST accept and produce both
   `application/dds-web+json` and `application/dds-web+xml`, honoring the
   `Accept` and `Content-Type` headers.
-- **FR-REST-003** The service MUST support all read query parameters in §2.2
-  with the documented defaults, including `maxWait` long polling.
+- **FR-REST-003** ⚠️ **Under revision — see [OQ-25](questions.md#oq-25).** As
+  written this requires all read query parameters in §2.2, inherited from the WIS
+  baseline. But `removeFromReaderCache` (take), `sampleStateMask`, and
+  `viewStateMask` are **per-DataReader** semantics, and
+  [DD-020](design-decisions.md#dd-020) gives scada-web *one shared reader* rather
+  than one per client — so on this architecture a `take` by one client would
+  consume samples belonging to others, and the two state masks would report
+  gateway-level state rather than client-level. `filterExpression`,
+  `maxSamples`, `maxWait`, and `instanceStateMask` are unaffected and remain
+  required. The recommendation is latest-value reads plus WebSocket push, which
+  drops the three problematic parameters rather than reimplementing them.
 - **FR-REST-004** The service MUST reproduce WIS status codes and the
   `{code, message}` error body with the documented error codes.
 - **FR-REST-005** The service MUST support instance `dispose` and `unregister`
@@ -434,9 +449,17 @@ land correctly on the DDS types underneath.
   (`error`, `saturate`, `wrap`), defaulting to `error`.
 - **FR-XF-004** Enumerations MUST be mappable by name, by ordinal, or through an
   explicit value table, including to and from strings.
-- **FR-XF-005** Optional members and unions MUST be handled: absent optionals
-  MUST be distinguishable from zero-valued ones, and union discriminators MUST
-  be mappable.
+- **FR-XF-005 [PoC · P1 · primary case]** Optional members and unions MUST be
+  handled: absent optionals MUST be distinguishable from zero-valued ones, and
+  union discriminators MUST be mappable. **This is the engine's first job, not a
+  completeness item** — in the actual data model every value is a `Value_t` union
+  discriminated over string/int32/int64/float32/float64, so union-to-scalar
+  projection must work before anything is demonstrable. Two concrete cases from
+  [sim/PlcValue.idl](../sim/PlcValue.idl): the string branch is `char[32]`, not
+  `string<32>`, and so needs an explicit char-array-to-string decode with
+  NUL-trimming rather than JSON's array-of-chars; and `KIND_FLOAT32` is declared
+  as IDL `double`, so a view MUST NOT claim to report which float width it
+  received. See [system-architecture.md](system-architecture.md) §6.1.
 - **FR-XF-006** Sequence ⇄ array reshaping MUST be supported, with a declared
   policy when a source exceeds a bounded destination (`error`, `truncate`).
 - **FR-XF-007** Constant injection and default values for unmapped view members
@@ -472,11 +495,19 @@ land correctly on the DDS types underneath.
 - **FR-XF-021** **Filtering** — a mapping MAY carry a predicate; outbound
   samples failing it are not delivered. Where the predicate is expressible as
   DDS SQL it SHOULD be pushed down into a content-filtered topic so filtering
-  happens before the sample reaches this process.
-- **FR-XF-022** **Join** — a view MAY be composed from more than one wire topic,
-  correlated by a declared key expression, with a declared join policy
-  (`latest_value` per key from a cache; window-based correlation is v2). Absent
-  counterparts follow `unmapped_policy`.
+  happens before the sample reaches this process. **Note:** key-based selection
+  is *not* this mechanism — it is scada-selector's job
+  ([DD-020](design-decisions.md#dd-020)), and scada-web must not create a reader
+  per client to achieve it. This requirement covers only value-based predicates
+  within an already-selected stream.
+- **FR-XF-022 [Out of scope — relocated]** **Join** — a view composed from more
+  than one wire topic, correlated by a declared key expression.
+  **Not built in the mapping engine.** The system's one join
+  (`IdValue` × `MetaData` on `uid`) is performed by scada-selector instead, which
+  already holds per-uid state; see [DD-021](design-decisions.md#dd-021). The
+  mapping engine MUST reject a mapping with more than one `<input>` at compile
+  time, while the schema retains the cardinality so join can be added later
+  without reshaping the plan representation.
 - **FR-XF-023** **Split / fan-out** — one inbound view sample MAY produce writes
   to more than one wire topic. Multi-topic writes are **not** atomic; the API
   MUST report per-topic outcomes and MUST NOT imply transactional semantics.
@@ -917,10 +948,10 @@ plumbing allows.
 
 | Phase | Content | Exit criteria |
 |---|---|---|
-| **P0 — Spikes** | Expression language (OQ-6); JSON losslessness (RISK-6); transformation cost shape (RISK-1); HTTP stack (OQ-5, now a smaller question — see DD-019). | Each question closed with measured data. Throwaway code. |
-| **P1 — Engine first** | Transformation engine standalone: plan compiler, mapping evaluation, key semantics, invertibility classification, `scada-web-mapc` CLI. **No HTTP, no DDS domain.** | Round-trip property tests green (NFR-TEST-002); §6.5 covered; mappings demonstrable from the CLI against JSON files. |
-| **P2 — DDS plumbing** | DDS layer, Resource Manager, DynamicData ⇄ JSON, XML config incl. `<transformation_library>`. | A mapped view readable from a live domain via the CLI or a test harness. |
-| **P3 — Web surface** | REST for entity setup and data; WebSocket bind/push. Simplest workable concurrency model (DD-019). | End-to-end demo: browser client consuming a mapped view that exists in no IDL, and writing back through it. **This is the PoC deliverable.** |
+| **P0 — Spikes** | Expression language (OQ-6), **including union-typed comparison** (OQ-14); JSON losslessness for `Value_t` and `char[32]` (RISK-6); transformation cost shape (RISK-1). HTTP stack is now near-settled (OQ-5 → Boost.Beast). | Each question closed with measured data. Throwaway code. |
+| **P1 — Engine first** | Transformation engine standalone: **union-to-scalar projection (FR-XF-005) first**, then plan compiler, mapping evaluation, key semantics, invertibility classification, `scada-web-mapc` CLI. **No HTTP, no DDS domain.** | Round-trip property tests green (NFR-TEST-002); §6.5 covered; `Value_t` projected to JSON correctly including the `char[32]` string branch. |
+| **P2 — DDS plumbing** | DDS layer, Resource Manager, DynamicData ⇄ JSON, XML config incl. `<transformation_library>`. One reader on `SelectedValue`, one writer on `ValueRequest`; interest refcounting (system-architecture §5, SR-001…004). | A mapped view readable from a live domain, driven by real `ValueRequest` traffic against scada-selector. |
+| **P3 — Web surface** | REST for entity setup and data; WebSocket bind/push; per-client demux (SR-004). Simplest workable concurrency model (DD-019, DD-022). | End-to-end demo: browser client consuming a mapped view that exists in no IDL, and writing back through it. **This is scada-web's part of the deliverable.** |
 | **P4 — Enough security to demo safely** | TLS, one authn mechanism, deny-by-default CORS, no default document root. | Demoable on a shared network without embarrassment. Not a security review. |
 | **Post-PoC** | Async I/O at scale (DD-009), full authz model (DD-013), observability (§7.4), WIS compat surface (DD-015), plugin ABI (DD-016), SDKs, join/split, hardware-gated performance. | — |
 

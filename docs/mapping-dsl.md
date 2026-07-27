@@ -56,8 +56,9 @@ A mapping is referenced as `LibName::MappingName` from a `<data_reader>` or
 
 | Element | Cardinality | Purpose |
 |---|---|---|
-| `<input>` | 1..n | Wire side. More than one implies a join (TRD FR-XF-022, v2). |
+| `<input>` | 1 | Wire side. Cardinality is retained in the schema, but more than one is a compile error in v1 — join is out of scope (TRD FR-XF-022, [DD-024](design-decisions.md#dd-024)). |
 | `<output>` | 1 | View side: either `view_schema=` referencing a declared schema, or inferred from the rules. |
+| `<lookup>` | 0..n | Reference-data binding — read-only keyed context (§3.8). Not a join. |
 | `<unmapped_policy>` | 0..1 | What to do with members no rule touches. |
 | `<on_error>` | 0..1 | Runtime evaluation failure policy. |
 | `<assign>` | 0..n | Direct member mapping. |
@@ -163,6 +164,44 @@ expressions, no aggregation — so that instance identity is bijective.
 Inbound defaults to `error` because a partially specified write is more
 dangerous than a partially specified read.
 
+### 3.8 `<lookup>` — reference data
+
+Binds a slowly-changing keyed topic as read-only context, so a view can pull in
+descriptive fields that do not travel with the value sample.
+
+```xml
+<lookup name="{alias}" topic_ref="{topic}" key="{wire-path}"
+        on_missing="omit|default|error"/>   <!-- default omit -->
+```
+
+Looked-up members are then addressed through the alias:
+
+```xml
+<lookup name="meta" topic_ref="MetaData" key="uid"/>
+<assign to="tag"   from="meta.longName"/>
+<assign to="hi_hi" from="meta.limits.redHigh"/>
+```
+
+**This is deliberately not a join** ([FR-XF-022](technical-requirements.md), which
+stays out of v1). The restrictions are what keep it cheap, and they are enforced
+at compile time:
+
+- **Single key, exact match.** No join expressions.
+- **No time semantics.** The value is the latest known one; there is no window,
+  no staleness policy, and no correlation ordering.
+- **Read-only.** A `<lookup>` member may not be a mapping target, and it never
+  participates in an inbound mapping. It therefore has no effect on invertibility
+  (§7).
+- **Bounded state.** One entry per key, sized by the source topic's instance
+  count. No eviction policy, because there is nothing to evict.
+
+The source should be `TRANSIENT_LOCAL` so a late-joining service populates the map
+regardless of start order. If it is not, `on_missing` governs early samples that
+arrive before their key is known — and `omit` is the default precisely because a
+value arriving before its description is normal at startup, not an error.
+
+See [DD-024](design-decisions.md#dd-024) for why this exists rather than a join.
+
 ---
 
 ## 4. Member paths
@@ -248,6 +287,7 @@ The compiler classifies each mapping (TRD FR-XF-025):
 | `<compute>` | no | write an explicit inbound counterpart |
 | `<aggregate>` | no | outbound only by definition |
 | `<filter>` | n/a | does not affect classification |
+| `<lookup>` | n/a | read-only context; never a mapping target (§3.8) |
 
 A mapping declared `bidirectional` whose computed class is narrower is a
 **compile error**, listing the offending members. This is intentional: silently

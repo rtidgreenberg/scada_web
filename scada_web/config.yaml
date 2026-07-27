@@ -1,0 +1,71 @@
+# scada_web configuration
+#
+# Declares DDS participants, topic subscriptions, and view mappings.
+# Types are wire-learned from DDS discovery — no local IDL needed here.
+# Pattern: references/act-sim-scope-infra/router/config/control-platform.yaml
+
+# --- DDS participants ---
+# Each participant joins a domain and discovers endpoints on it.
+participants:
+  plc_domain:
+    domain: 0  # same domain as sim/plc_publisher.py
+
+# --- Topic subscriptions ---
+# Topic names to subscribe to. The DynamicType is learned from the wire
+# (inline COMPLETE TypeObject in SEDP — no XML/IDL on this side).
+topics:
+  - name: "PLC::MetaData"
+    participant: plc_domain
+    # MetaData is TRANSIENT_LOCAL — we'll receive all tags even as a late joiner.
+
+  - name: "PLC::IdValue"
+    participant: plc_domain
+    # Periodic value stream. No filter — the selector (when built) will
+    # pre-filter; for the PoC we receive everything.
+
+# --- View mappings ---
+# Project the wire DynamicData type down to a slim JSON view for web clients.
+# The mapping engine handles union projection, char-array→string, renaming.
+views:
+  - name: tag_value
+    topic: "PLC::IdValue"
+    fields:
+      - wire: uid
+        view: uid
+      - wire: valueTime
+        view: timestamp
+      - wire: smoothedValue
+        view: value
+        transform: union_scalar  # resolve Value_t union → bare scalar
+      - wire: instantaneousValue
+        view: raw_value
+        transform: union_scalar
+
+  - name: tag_metadata
+    topic: "PLC::MetaData"
+    fields:
+      - wire: uid
+        view: uid
+      - wire: longName
+        view: name
+      - wire: hostname
+        view: source
+      - wire: limits.redHigh
+        view: alarm_hh
+        transform: union_scalar
+      - wire: limits.redLow
+        view: alarm_ll
+        transform: union_scalar
+      - wire: limits.yellowHigh
+        view: alarm_h
+        transform: union_scalar
+      - wire: limits.yellowLow
+        view: alarm_l
+        transform: union_scalar
+
+# --- Web server ---
+server:
+  host: "0.0.0.0"
+  port: 8080
+  websocket_path: /ws
+  rest_prefix: /api/v1
