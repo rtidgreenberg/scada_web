@@ -79,8 +79,8 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | DECIDED | MEDIUM | DG | Web surface design |
 | [OQ-1](#oq-1) | RTI licensing/support position on reimplementing WIS | OPEN | MEDIUM | DG | Productization, not the PoC |
 | [OQ-26](#oq-26) | One DDS domain across the RT boundary, or two? | OPEN | MEDIUM | DG | Selector deployment, OQ-22 |
-| [OQ-27](#oq-27) | Should `ValueRequest` be keyed + `TRANSIENT_LOCAL` for phase 0? | OPEN | HIGH | DG | Control plane design, SR-003 |
-| [OQ-28](#oq-28) | `METADATA` sentinel uid: magic value or new enum? | OPEN | MEDIUM | DG | IDL contract, catalogue bootstrap |
+| [OQ-27](#oq-27) | Should `ValueRequest` be keyed + `TRANSIENT_LOCAL` for phase 0? | SUPERSEDED by [DD-034](design-decisions.md#dd-034)/[DD-036](design-decisions.md#dd-036) | HIGH | DG | Control plane design, SR-003 |
+| [OQ-28](#oq-28) | `METADATA` sentinel uid: magic value or new enum? | DEFERRED → [DD-039](design-decisions.md#dd-039) | MEDIUM | DG | IDL contract, catalogue bootstrap |
 | [OQ-29](#oq-29) | `char stringValue[32]` vs `string<32>` in the IDL | DECIDED → [DD-040](design-decisions.md#dd-040) | HIGH | DG | Type correctness, Python/C++ interop |
 | [OQ-30](#oq-30) | Does the selector need an ACK/feedback channel? | DEFERRED | MEDIUM | DG | Command reliability guarantee |
 | [OQ-31](#oq-31) | Is WaitSet dispatch order guaranteed for simultaneous conditions? | DECIDED → [DD-041](design-decisions.md#dd-041) | MEDIUM | DG | Control-before-data invariant |
@@ -1157,9 +1157,13 @@ something else.
 ### OQ-27
 **Should `ValueRequest` be keyed on `uid` with `TRANSIENT_LOCAL` durability for phase 0?**
 
-- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Status:** SUPERSEDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** Control plane design, SR-003 reconciliation, OQ-17, OQ-24
 - **Raised:** 2026-07-27 (architecture review of scada-select)
+- **Superseded:** 2026-07-27 — already decided by [DD-034](design-decisions.md#dd-034)
+  (unkeyed) and [DD-036](design-decisions.md#dd-036) (deltas). Additionally,
+  [DD-039](design-decisions.md#dd-039) (preset uid range) removes the bootstrap
+  concern that motivated this question.
 
 **Context.** The current design uses an unkeyed command stream with `RELIABLE` +
 `KEEP_ALL`. This makes the selector stateless across restarts (the table is lost
