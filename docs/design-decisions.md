@@ -75,6 +75,7 @@ a stated invalidation condition is a belief, and beliefs are what rot.
 | [DD-024](#dd-024) | Selection and presentation are separate roles; metadata lookup belongs to presentation | ACCEPTED | supersedes DD-021 |
 | [DD-025](#dd-025) | Enable/disable ids over the in-band DDS topic, not Routing Service remote administration | ACCEPTED | — |
 | [DD-026](#dd-026) | scada-selector uses compiled types — which rules out a Routing Service Processor | ACCEPTED | OQ-23 (Role 1) |
+| [DD-027](#dd-027) | scada-selector downrates per id; scada-web relays ids **and rate** | ACCEPTED | — |
 
 ---
 
@@ -1113,3 +1114,107 @@ the clever version wins.
 adapter routes, or measurement shows `DynamicData` key access is not in fact the
 bottleneck at the rates involved — in which case the Processor option, and the
 free infrastructure with it, becomes available again.
+
+---
+
+### DD-027
+**scada-selector downrates per id; scada-web relays selected ids *and* the
+requested rate.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** DD-002, DD-020, DD-024, DD-025, OQ-17, OQ-24, system-architecture §1a, §4.1
+
+**Decision.** Role 1 is **selection in two dimensions — which tags, and how
+often.** scada-web sends both: the set of enabled uids and, per uid, the rate it
+wants. scada-selector enforces both, absorbing the full-rate stream with compiled
+types and emitting a decimated one. It still makes **no data-model change** — the
+output type is the input type.
+
+**Context — the field finding this answers.** Batched reception of small samples
+into a `DynamicData` DataReader degrades measurably. The mechanism is documented:
+Connext does **not** keep a batch as a unit in the reader queue — each sample in a
+batch is deserialized and processed individually. Batching therefore reduces
+network overhead without reducing per-sample receive cost, and for `DynamicData`
+that per-sample cost is materially higher than for a generated type, because the
+sample is deserialized into a reflective representation rather than a compile-time
+layout. A batch of many tiny samples concentrates that cost into a burst.
+
+That is a direct threat to [DD-002](#dd-002), which keeps scada-web on
+`DynamicData` — necessarily, since the mapping engine operates on type descriptors
+rather than C++ structs, and without it there is no mapping engine.
+
+**Why DD-002 survives.** The selector is the mitigation. It sits where the
+high-rate batched stream arrives, handles it with compiled types (DD-026), and
+emits a stream that has been reduced on **both** axes before any `DynamicData`
+reader sees it:
+
+| | Reduction | Effect on the downstream DynamicData reader |
+|---|---|---|
+| Tags | Only enabled uids | Fewer instances |
+| Rate | Per-uid decimation | Fewer samples per instance per second |
+
+The two multiply. An operator display showing 200 of 5,000 tags at 1 Hz, from a
+source publishing all 5,000 at 50 Hz, is a reduction of three orders of magnitude
+before `DynamicData` is involved at all. **The expensive representation is used
+only where the volume is small, and the cheap one only where it is large** — which
+is the same principle as the type split in DD-026, applied to rate.
+
+**Consequences.**
+
+*The IDL gained a rate field* — **applied 2026-07-27.** `ValueRequest` now carries
+`unsigned long period_ms` alongside `uid`, `name`, `command`:
+
+```idl
+struct ValueRequest {
+    UniqueId_t     uid;
+    Name_t         name;
+    Command_t      command;
+    unsigned long  period_ms;   // 0 = every sample; ADD only
+};
+```
+
+Integer milliseconds rather than float Hz, so there is no rounding ambiguity about
+what rate was requested. `period_ms` applies to `ADD` and is ignored for `DELETE`
+and `METADATA`; re-sending `ADD` for an enabled uid updates its rate. Both
+derivations were regenerated and verified to agree — `rtiddsgen` produces
+`uint32_t period_ms`, and [sim/plc_types.py](../sim/plc_types.py) was updated to
+match (it hand-transcribes the IDL, exactly the drift risk
+[OQ-20](questions.md#oq-20) describes).
+
+*This was the minimal change, not the fuller redesign.*
+[OQ-17](questions.md#oq-17) and [OQ-24](questions.md#oq-24) recommend going
+further — `@key uid` with `{enabled, period_ms}` and `TRANSIENT_LOCAL`, i.e.
+keyed desired state rather than a command stream. That step was **not** taken, so
+its two benefits are not yet realised: [DD-023](#dd-023)'s `RELIABLE + KEEP_ALL`
+is still required, and SR-003 reconciliation is still required. Both remain open
+questions rather than settled design.
+
+*Do not batch the selector's output.* Batching would reconcentrate exactly the
+burst the downrating exists to remove, and buys little once volume is low. Batch
+the *input* side if the publisher benefits; leave the output unbatched.
+
+*Refcounting gains a dimension.* SR-001's per-uid refcount must now also resolve
+competing rates: two clients watching one tag at 1 Hz and 10 Hz means the selector
+should be told **the fastest requested rate**, with scada-web decimating further
+per client if it wants. Interest is `max(rate)` over interested clients, not a
+count.
+
+*Rate semantics — recommended, not yet ratified:*
+- **Decimate on arrival**, not on a timer: keep a per-uid `last_emitted`, forward
+  the first sample arriving at or after `last_emitted + period`. O(1) per sample,
+  no timers, and naturally correct when the source is slower than requested.
+  Even-spacing via a timer would be smoother but requires holding samples and
+  waking up; not worth it for display data.
+- **Lifecycle events bypass the rate limit.** Dispose and unregister
+  (`valid_data == false`) must be forwarded immediately. A display learning that a
+  tag went stale at the next tick rather than now is a real defect, and this is
+  the sort of detail that gets missed.
+- **Wall clock, not `valueTime`**, for the decimation decision — source timestamps
+  may be irregular or skewed.
+
+**Revisit if.** Measurement shows scada-web's `DynamicData` path is still the
+bottleneck after downrating. Mitigations then, in order: reuse one `DynamicData`
+instance across `take(sample, info)` calls; tune `buffer_initial_size` with
+`trim_to_size = 0`; and only as a last resort reconsider DD-002 — which would mean
+giving up the mapping engine, so it is close to unthinkable.
+`skip_deserialization` is **not** available to us: it requires that the consumer
+not inspect fields, and inspecting fields is scada-web's entire job.

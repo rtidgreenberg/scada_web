@@ -38,16 +38,24 @@ speaks DDS, and scada-web never speaks to the simulated process.
 Two roles carry the system. Stating them precisely matters, because the boundary
 between them was drawn in the wrong place in v0.1 (see §6.2).
 
-### Role 1 — selection: "which tags flow at all"
+### Role 1 — selection: "which tags flow, and how often"
 
-**Component: scada-selector.** Receives requested ids and gates the value stream
-accordingly. **Pure selection: it does not touch the data model.** Samples that
-pass through are byte-for-byte the same type that went in.
+**Component: scada-selector.** Receives requested ids **and rates**, and gates the
+value stream on both. **Pure selection: it does not touch the data model.**
+Samples that pass through are byte-for-byte the same type that went in.
 
-- Input: `ValueRequest` (`ADD`/`DELETE`/`METADATA` for a `uid`), `IdValue`
-- Output: `IdValue` on a filtered topic — **same type, different topic name**
-- State: the set of enabled uids
+- Input: the subscription request topic (uid, enabled, rate), `IdValue`
+- Output: `IdValue` on a selected topic — **same type, different topic name**
+- State: per-uid `{enabled, period, last_emitted}`
 - Not its job: JSON, HTTP, view schemas, correlation, alarm logic
+
+Selection has **two dimensions**, and the rate axis matters as much as the id
+axis ([DD-027](design-decisions.md#dd-027)): it is what keeps the volume reaching
+scada-web's `DynamicData` reader small enough for that representation to be
+affordable. Batched small samples are measurably expensive to receive as
+`DynamicData` — Connext unpacks a batch and deserializes each sample
+individually, so batching cuts network overhead but concentrates per-sample cost
+into a burst. Downrating removes the burst before any `DynamicData` reader sees it.
 
 ### Role 2 — presentation: "what the web sees, and how"
 
@@ -125,14 +133,14 @@ simpler and bounded.
                    │
                    ▼
   ┌──────────────────────────────────────── Level 2 ───────┐
-  │  scada-selector      ROLE 1: selection only            │
-  │    • compiled types — high-rate path                   │
-  │    • holds the enabled-uid set                         │
-  │    • republishes enabled uids — same type, unmodified  │
+  │  scada-selector   ROLE 1: select by id AND rate        │
+  │    • compiled types — absorbs the batched full stream  │
+  │    • per-uid {enabled, period, last_emitted}           │
+  │    • republishes — same type, unmodified, downrated    │
   └────────┬──────────────────────────────────▲────────────┘
            │                                  │
-   PLC::SelectedValue                  PLC::ValueRequest
-   (IdValue type, enabled uids only)   (ADD · DELETE · METADATA)
+   PLC::SelectedValue                  subscription request
+   (IdValue type, selected + downrated)  (uid · enabled · period_ms)
            │                                  │
            │        ┌── PLC::MetaData ────────┼── (direct, TRANSIENT_LOCAL)
            ▼        ▼                         │
@@ -178,25 +186,39 @@ DDS entities. See [DD-020](design-decisions.md#dd-020).
 
 ## 4. Topic contracts
 
-### 4.1 `PLC::ValueRequest` — scada-web → scada-selector
+### 4.1 Subscription request — scada-web → scada-selector
 
-Existing type in [sim/PlcValue.idl](../sim/PlcValue.idl):
+Current type in [sim/PlcValue.idl](../sim/PlcValue.idl), with `period_ms` added
+for [DD-027](design-decisions.md#dd-027):
 
 ```idl
 enum Command_t { ADD, DELETE, METADATA };
 
 struct ValueRequest {
-    UniqueId_t   uid;      // long
-    Name_t       name;     // string<32>
-    Command_t    command;
+    UniqueId_t     uid;         // long
+    Name_t         name;        // string<32>
+    Command_t      command;
+    unsigned long  period_ms;   // 0 = every sample
 };
 ```
 
-| Command | Meaning |
-|---|---|
-| `ADD` | Enable `uid` on the output topic |
-| `DELETE` | Disable `uid` |
-| `METADATA` | Re-publish the cached `MetaData` for `uid` |
+| Command | Meaning | `period_ms` |
+|---|---|---|
+| `ADD` | Enable `uid` on the output topic | Max publish rate for this uid; `0` = every sample. Re-sending `ADD` for an already-enabled uid **updates its rate**. |
+| `DELETE` | Disable `uid` | Ignored |
+| `METADATA` | Re-publish `MetaData` for `uid` | Ignored |
+
+Instance lifecycle notifications (dispose/unregister) are **not** rate limited —
+see [scada-selector-implementation.md](scada-selector-implementation.md) §3.1.
+
+> **Still open: whether this should be keyed desired state instead of a command
+> stream.** [OQ-17](questions.md#oq-17) and [OQ-24](questions.md#oq-24) recommend
+> `@key uid` with `{enabled, period_ms}` and `TRANSIENT_LOCAL` durability, which
+> would be idempotent and let a restarted selector recover its whole subscription
+> set from the middleware. Adding `period_ms` did not take that step, so **both
+> consequences still stand**: [DD-023](design-decisions.md#dd-023)'s
+> `RELIABLE + KEEP_ALL` remains required, and SR-003 reconciliation remains
+> required. Deciding those two questions is what would retire them.
 
 **`ValueRequest` has no `@key`, so it is a single-instance command stream. Its
 QoS must be `RELIABLE` + `KEEP_ALL`.** With `KEEP_LAST depth=1` — the QoS the sim
@@ -262,13 +284,24 @@ scada-web maintains a per-uid refcount across all connected clients, sending
 
 This is a small amount of code and a well-known source of bugs. Requirements:
 
-- **SR-001** scada-web MUST refcount uid interest across clients, and MUST emit
-  `ADD` only on the 0→1 transition and `DELETE` only on 1→0.
-- **SR-002** Abrupt client disconnection MUST decrement that client's interest.
-  A dropped TCP connection is the normal case, not the exceptional one.
+- **SR-001** scada-web MUST refcount uid interest across clients, enabling a uid
+  on the 0→1 transition and disabling it on 1→0.
+- **SR-001a** Interest is **not just a count** — it carries a rate
+  ([DD-027](design-decisions.md#dd-027)). Two clients watching one tag at 1 Hz
+  and 10 Hz means the selector must be told the **fastest** requested rate, so
+  the aggregate is `max(rate)` over interested clients, recomputed whenever a
+  client joins, leaves, or changes rate. scada-web MAY decimate further per client
+  from that shared stream. Getting this wrong is silent: the slow client is fine
+  and the fast one is merely sluggish, so it will not show up in a smoke test.
+- **SR-002** Abrupt client disconnection MUST decrement that client's interest and
+  recompute the aggregate rate. A dropped TCP connection is the normal case, not
+  the exceptional one.
 - **SR-003** scada-web MUST reconcile its full interest set after scada-selector
-  restarts, since the filter's enabled set is in-memory and does not survive.
+  restarts, since the selector's state is in-memory and does not survive.
   Detect via liveliness on `SelectedValue` and re-send the current set.
+  **This requirement disappears** if the subscription topic becomes keyed desired
+  state with `TRANSIENT_LOCAL` durability (§4.1) — the middleware replays the set
+  and no reconciliation protocol is needed.
 - **SR-004** Because the output topic carries the **union** of all clients'
   interests ([OQ-12](questions.md#oq-12)), scada-web MUST demultiplex per client
   and MUST NOT forward a sample to a client that did not request its uid. This is

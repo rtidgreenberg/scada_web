@@ -171,6 +171,66 @@ while (running) {
 `reader.take()` returns `LoanedSamples<T>`, which is RAII — the loan returns when
 the range goes out of scope. Do not retain references into it past that point.
 
+### 3.1 Adding rate control
+
+[DD-027](design-decisions.md#dd-027) makes selection two-dimensional: by id **and**
+by rate. The state becomes per-uid rather than a bare set:
+
+```cpp
+struct TagState {
+    uint32_t period_ms   {0};   // 0 = forward every sample
+    std::chrono::steady_clock::time_point last_emitted {};
+};
+std::unordered_map<int32_t, TagState> subscriptions;
+```
+
+and the data-plane handler decimates on arrival:
+
+```cpp
+[&]() {
+    const auto now = std::chrono::steady_clock::now();
+    for (const auto &s : value_reader.take()) {
+        const int32_t uid = s.info().valid()
+            ? s.data().uid
+            : key_of(value_reader, s.info());     // invalid sample: key only
+
+        auto it = subscriptions.find(uid);
+        if (it == subscriptions.end()) continue;  // not selected
+
+        // Lifecycle events bypass the rate limit — a display must learn that a
+        // tag went stale now, not at the next tick.
+        if (!s.info().valid()) {
+            selected_writer.write(s.data(), s.info());
+            continue;
+        }
+
+        TagState &st = it->second;
+        if (st.period_ms != 0
+            && now - st.last_emitted < std::chrono::milliseconds(st.period_ms)) {
+            continue;                              // too soon
+        }
+        st.last_emitted = now;
+        selected_writer.write(s.data());
+    }
+}
+```
+
+Four choices worth stating explicitly, all defaults rather than the only options:
+
+- **Decimate on arrival, not on a timer.** O(1) per sample, no timers, and
+  naturally correct when the source is slower than requested. A timer would give
+  evener spacing but must hold samples and wake up; not worth it for display data.
+- **Lifecycle events bypass the limit** — see the comment above. Easy to miss, and
+  a real defect if missed.
+- **`steady_clock`, not `valueTime`.** Source timestamps may be irregular or
+  skewed; the decimation decision is about *our* output cadence.
+- **`period_ms == 0` means every sample**, so an unset rate degrades to plain
+  selection rather than to silence.
+
+Invalid samples carry only the key, so recovering the uid needs
+`reader.key_value(key_holder, info.instance_handle())` rather than a payload read —
+that is the `key_of` helper above.
+
 ---
 
 ## 4. What "efficient" actually buys here
