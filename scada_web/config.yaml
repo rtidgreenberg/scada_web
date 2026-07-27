@@ -31,6 +31,13 @@ topics:
     #       participant: web_domain
     # and scada_web loses its field-side participant entirely. Same for
     # PLC::IdValue → PLC::SelectedValue below.
+    #
+    # NOTE (DD-029): the web side is BEST_EFFORT + VOLATILE, so after that switch
+    # this topic delivers NO history to a late-joining scada_web. The catalogue must
+    # be requested: write ValueRequest{command=METADATA, uid=<all-sentinel>} and
+    # retry until the uid->metadata map is populated. Subscribing and waiting will
+    # hang forever with an empty catalogue. Values need no equivalent — they are
+    # periodic, so a late joiner waits at most one publish period.
 
   - name: "PLC::IdValue"
     participant: plc_domain

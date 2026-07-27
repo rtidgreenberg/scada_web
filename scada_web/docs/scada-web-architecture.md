@@ -123,7 +123,7 @@ concurrency) from the system design decisions.
 ### 3.4 Interest Refcounting (SR-001 – SR-004)
 
 The `InterestManager` implements all four system requirements from
-[system-architecture.md](system-architecture.md) §5:
+[system-architecture.md](../../docs/system-architecture.md) §5:
 
 | Requirement | Implementation |
 |---|---|
@@ -300,3 +300,116 @@ Both share YAML-driven topology declaration.
 - **Alarm state machine** (ISA-18.2): Normal → Unack → Ack → RTN, with
   priority, shelving, and rate-limiting per the scada-sme guidance.
 - **Auth**: per-topic, per-operation authorization (DD-013).
+- **Per-key reliability classes** — see §9.1. Post-PoC; the PoC is uniformly
+  best-effort on the web side.
+
+### 9.1 Per-Key Reliability Classes (post-PoC)
+
+**Today, and for the PoC:** the web side is uniformly `BEST_EFFORT` + `VOLATILE`
+([DD-029](../../docs/design-decisions.md#dd-029)). That is the right default for
+display data — values are periodic, so the next sample supersedes a lost one before
+an operator could act on it, and best-effort output is what makes the
+[DD-028](../../docs/design-decisions.md#dd-028) boundary invariant structural rather
+than a matter of QoS discipline.
+
+**Why it will not hold forever:** not every tag is display data. Some values are
+**not idempotent** — a totalizer, an event or trip counter, a discrete state
+transition, a setpoint-write confirmation. For those, "the next periodic sample
+repairs it" is false, because the next sample carries a *different* value rather
+than a repetition of the lost one. Those tags want reliable delivery; the other few
+thousand do not.
+
+**The constraint that shapes the whole design: DDS reliability is per *endpoint*,
+not per instance.** There is no per-key `RELIABILITY` to set. So "reliability per
+key" necessarily means **partitioning tags across endpoints**, not tuning a policy:
+
+- **Separate topics, not separate writers on one topic.** Two writers with different
+  reliability on one topic looks tempting and misbehaves: a `RELIABLE` reader will
+  not match a `BEST_EFFORT` writer at all (requested exceeds offered), while a
+  `BEST_EFFORT` reader matches *both* — so critical samples arrive twice on the
+  best-effort path. A second topic (`PLC::SelectedValueCritical`, `RELIABLE`, with a
+  `RELIABLE` reader here) keeps matching unambiguous.
+- **`ValueRequest` gains a class per uid**, alongside `period_ms`. The selector then
+  routes each selected uid to the writer for its class — a small extension of the
+  per-uid state it already keeps ([DD-027](../../docs/design-decisions.md#dd-027)).
+- **Interest refcounting gains a third dimension**: `InterestManager` already
+  resolves competing rates as `max(rate)`; it would also resolve competing classes
+  as `max(criticality)`, so one client asking for reliable delivery upgrades the tag
+  for everyone.
+
+**Which reliability, and on which hop.** There are four separate delivery paths in
+this system, and only one of them is what this section is about:
+
+| Hop | Mechanism | Today | This section |
+|---|---|---|---|
+| sim → selector | DDS `RELIABILITY` | `RELIABLE` | no |
+| **selector → scada-web** | **DDS `RELIABILITY`** | **`BEST_EFFORT`** ([DD-029](../../docs/design-decisions.md#dd-029)) | **yes — this one** |
+| scada-web → selector (`ValueRequest`) | DDS `RELIABILITY` | `RELIABLE` (the stated exception) | no |
+| scada-web → browser | WebSocket over TCP | reliable by transport, no DDS QoS involved | no |
+
+So: **DDS reliability on the selector's outbound DataWriter and scada-web's matching
+DataReader.** Nothing here is about HTTP, WebSocket, or TCP — and nothing here is
+about the browser, which does not speak DDS at all.
+
+**The trap: switching that reliability back on can slow down the plant side.** This
+is why the item is roadmap work and not a config change.
+
+Here is the chain, one step at a time:
+
+1. Reliable delivery means the sending DataWriter keeps each sample until the
+   receiving DataReader acknowledges it.
+2. If that DataReader stops acknowledging, the writer's queue of unacknowledged
+   samples fills up. **The reader here is scada-web** — this gateway process — so the
+   causes are things that stall *it*: the process is paused, swapped, or CPU-starved;
+   its read loop is blocked on something slow; or the network between the two hosts
+   drops packets faster than they can be repaired.
+3. When that queue is full, the next `write()` in the selector **waits** instead of
+   returning.
+4. That wait happens on the selector's single thread — the same thread that reads
+   from the field side.
+5. While it waits, nothing is being read from the field. Incoming samples pile up
+   and eventually get dropped.
+
+So a stalled **gateway** ends up degrading the plant-facing half of the selector.
+That is exactly the coupling [DD-029](../../docs/design-decisions.md#dd-029) got rid
+of by making the web side best-effort: a best-effort writer never waits for an
+acknowledgement, so step 3 cannot happen.
+
+**A frozen browser is a different problem on a different hop.** It stalls the
+WebSocket, so TCP backpressure lands in scada-web's own send path — never in the
+selector's, because DDS acknowledgements come from this process, not from the
+browser. That hop needs its own answer (bounded per-client queues, drop or
+disconnect a client that cannot keep up) and it is scada-web's to give: see
+[DD-022](../../docs/design-decisions.md#dd-022) and §3.3's fire-and-forget push. The
+two must not be conflated — the isolation described below buys nothing against a slow
+browser.
+
+Turning reliability back on for some tags therefore means making sure that waiting
+can never touch the read loop. Three ways, roughly in order of preference:
+
+- **Send asynchronously** — a background thread does the sending, so the read loop
+  hands off and moves on (`ASYNCHRONOUS_PUBLISH_MODE` with a `FlowController`).
+- **Give the reliable writer its own thread**, separate from the read loop.
+- **Cap the queue and drop when it is full** — simplest, but then delivery is not
+  actually reliable, and the docs must say so plainly instead of implying a
+  guarantee nobody checked.
+
+**Building that isolation is the real work here. Changing the QoS setting is one
+line.**
+
+**Evaluate this cheaper option first:** application-level per-key gap detection with
+re-request over the control channel. `ValueRequest` stays `RELIABLE`
+([DD-029](../../docs/design-decisions.md#dd-029)), so scada-web can detect a gap for
+a critical tag and ask for a resend — the same request/reply machinery the tag
+catalogue already requires, applied to values. It gives eventual per-key
+completeness with **no reliable data writer at all**, so the boundary invariant
+stays structural. It needs a per-instance sequence number or writer-side sample
+count to detect gaps against; whether a `BEST_EFFORT` reader's `SampleLostStatus`
+is usable for this is **unverified** and should be checked before designing on it.
+RTI's `TopicQuery` is the documented on-demand catch-up mechanism and is worth
+evaluating in the same pass.
+
+**Prerequisite for either:** a decision about *which* tags are critical, which is
+plant-engineering input rather than an architecture choice, and which overlaps
+[OQ-14](../../docs/questions.md#oq-14) (where alarm evaluation lives) — an
+alarm-triggering value is the obvious first member of the reliable class.

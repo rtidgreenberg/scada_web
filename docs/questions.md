@@ -64,18 +64,18 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 |---|---|---|---|---|---|
 | [OQ-23](#oq-23) | Standalone, RS Adapter + Processor, or hybrid? | Role 1 ANSWERED → [DD-026](design-decisions.md#dd-026); Role 2 READY | MEDIUM | DG | scada-web structure |
 | [OQ-12](#oq-12) | Shared union output topic, or one per client? | DECIDED | BLOCKING | DG | scada-selector design, step 1 |
-| [OQ-11](#oq-11) | What must the PoC demonstrate to count as a success? | OPEN | BLOCKING | DG | Judging the outcome |
+| [OQ-11](#oq-11) | What must the PoC demonstrate to count as a success? | DECIDED | BLOCKING | DG | Judging the outcome |
 | [OQ-15](#oq-15) | What language and DDS API for scada-selector? | SUPERSEDED | — | — | → [OQ-23](#oq-23) |
-| [OQ-6](#oq-6) | Bespoke expression grammar or restricted CEL? | OPEN | HIGH | — | mapping-dsl §4/§5, P1 |
-| [OQ-19](#oq-19) | Union comparison and promotion rules? | OPEN | HIGH | — | OQ-6 spike, OQ-14 |
-| [OQ-24](#oq-24) | `ValueRequest`: deltas or full desired state? | READY | HIGH | — | DD-023, SR-003, OQ-17 |
-| [OQ-25](#oq-25) | Per-client read semantics on a shared reader — keep WIS polling at all? | READY | HIGH | DG | FR-REST-003, read path |
+| [OQ-6](#oq-6) | Bespoke expression grammar or restricted CEL? | DEFERRED | HIGH | — | mapping-dsl §4/§5, P1 |
+| [OQ-19](#oq-19) | Union comparison and promotion rules? | DEFERRED | HIGH | — | OQ-6 spike, OQ-14 |
+| [OQ-24](#oq-24) | `ValueRequest`: deltas or full desired state? | DECIDED | HIGH | DG | DD-023, SR-003, OQ-17 |
+| [OQ-25](#oq-25) | Per-client read semantics on a shared reader — keep WIS polling at all? | DECIDED | HIGH | DG | FR-REST-003, read path |
 | [OQ-14](#oq-14) | Where does alarm limit evaluation and state live? | DECIDED | HIGH | DG | Browser + filter scope |
 | [OQ-13](#oq-13) | Is name-based tag lookup required, or is `uid` enough? | OPEN | MEDIUM | — | `ValueRequest` handling |
 | [OQ-16](#oq-16) | What stack for the browser interface? | OPEN | MEDIUM | — | Browser work, step 5 |
-| [OQ-17](#oq-17) | Should `ValueRequest` be keyed on `uid`? | OPEN | MEDIUM | — | IDL revision window |
+| [OQ-17](#oq-17) | Should `ValueRequest` be keyed on `uid`? | DECIDED | MEDIUM | DG | IDL revision window |
 | [OQ-20](#oq-20) | Single source of truth for types across components? | ANSWERED | — | — | → [DD-026](design-decisions.md#dd-026) |
-| [OQ-21](#oq-21) | Are trends and a historian in scope? | OPEN | MEDIUM | DG | Browser scope |
+| [OQ-21](#oq-21) | Are trends and a historian in scope? | DECIDED | MEDIUM | DG | Browser scope |
 | [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | READY | MEDIUM | DG | Web surface design |
 | [OQ-1](#oq-1) | RTI licensing/support position on reimplementing WIS | OPEN | MEDIUM | DG | Productization, not the PoC |
 | [OQ-26](#oq-26) | One DDS domain across the RT boundary, or two? | OPEN | MEDIUM | DG | Selector deployment, OQ-22 |
@@ -113,6 +113,16 @@ path only — metadata *ownership* stays with scada-web. It raised **OQ-26** and
 with a deliberate bridge, was impossible while scada-web held a field-side
 endpoint. Any text below implying scada-web subscribes to `PLC::MetaData` directly
 is superseded.
+
+**Scope note (2026-07-27, fifth revision):** the **web side is `BEST_EFFORT`**
+([DD-029](design-decisions.md#dd-029)). `PLC::ValueRequest` is the single stated
+exception and keeps `RELIABLE` + `KEEP_ALL`, so [DD-023](design-decisions.md#dd-023)
+stands and [OQ-17](#oq-17)/[OQ-24](#oq-24) remain optional rather than forced. Two
+consequences below: **[OQ-25](#oq-25)'s option A is now the only coherent choice** —
+a best-effort current-value stream has nothing for take-once semantics to take — and
+the tag catalogue can no longer arrive by durability, since `TRANSIENT_LOCAL`
+requires `RELIABLE` on both ends, so it is **requested** over the reliable control
+channel instead.
 
 ---
 
@@ -308,8 +318,11 @@ platform exists to measure it on.
 ### OQ-6
 **Bespoke expression grammar, or a restricted profile of an existing language?**
 
-- **Status:** OPEN · **Priority:** HIGH · **Owner:** —
+- **Status:** DEFERRED · **Priority:** HIGH · **Owner:** —
 - **Blocks:** [mapping-dsl.md](mapping-dsl.md) §4 and §5 finalization; P3
+- **Deferred:** 2026-07-27 — POC uses `DynamicData.to_json()` directly; no
+  expression language or mapping engine needed. Revisit when mapping/transform
+  layer is built.
 - **Raised:** 2026-07-27
 
 **Context.** DD-011 already fixes the *requirements*: total, statically typed
@@ -423,9 +436,18 @@ written down.
 ### OQ-11
 **What must the PoC demonstrate to count as a success?**
 
-- **Status:** OPEN · **Priority:** BLOCKING · **Owner:** DG
+- **Status:** DECIDED · **Priority:** BLOCKING · **Owner:** DG
 - **Blocks:** Judging the outcome; secondarily the P3 scope
 - **Raised:** 2026-07-27 (PoC scoping)
+- **Decision:** 2026-07-27 — The POC demonstrates:
+  1. GUI sends select commands (add/remove tag UIDs)
+  2. scada-selector publishes selected values + metadata
+  3. GUI displays those selected values in real time
+  4. Configuration is YAML, as simple as possible
+
+  No mapping engine, no expression language, no write-through, no round-trip
+  correctness proofs. Success = the read path works end-to-end with real DDS
+  data flowing from sim → scada-selector → scada-web → browser.
 
 **Context.** A prototype without a stated success criterion cannot fail, which
 means it also cannot succeed — it just ends when attention moves on. This is
@@ -648,9 +670,12 @@ plus trend for the PoC and treat the mimic as separate.
 ### OQ-17
 **Should `ValueRequest` be keyed on `uid`?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** —
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** IDL revision window — cheap now, disruptive later
 - **Raised:** 2026-07-27 (latent in [DD-023](design-decisions.md#dd-023))
+- **Decision:** 2026-07-27 — **Option (a): leave unkeyed, `KEEP_ALL`.** No IDL
+  change. Commands queue in order. Keyed desired-state model (b) is future
+  consideration if restart recovery becomes needed.
 
 **Context.** `ValueRequest` currently has no `@key`, making it a single-instance
 command stream, which is why DD-023 requires `KEEP_ALL`. Adding `@key uid` would
@@ -702,9 +727,11 @@ decision rather than an omission.
 ### OQ-19
 **How are union-typed values compared, and what are the promotion rules?**
 
-- **Status:** OPEN · **Priority:** HIGH · **Owner:** —
+- **Status:** DEFERRED · **Priority:** HIGH · **Owner:** —
 - **Blocks:** [OQ-6](#oq-6) expression-language spike; [OQ-14](#oq-14) alarm evaluation
 - **Raised:** 2026-07-27 (was a note inside OQ-14)
+- **Deferred:** 2026-07-27 — depends on OQ-6; both are post-POC (mapping engine
+  roadmap).
 
 **Context.** Every value in the data model is a `Value_t` union over string,
 int32, int64, float32 (declared `double`), and float64. Alarm limits are *also*
@@ -789,9 +816,12 @@ whether the Connext Python API can load XML types as readily.
 ### OQ-21
 **Are trends and a historian in scope?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Browser scope; possibly a fifth component
 - **Raised:** 2026-07-27
+- **Decision:** 2026-07-27 — **Option (b): client-side trend buffer.** Browser
+  keeps last N minutes in memory from the WebSocket stream. No server-side
+  historian. Real historian (option c) is out of scope.
 
 **Context.** I marked historian and trends "out of scope" in
 [system-architecture.md](system-architecture.md) §7 on my own authority, which
@@ -939,9 +969,12 @@ TRD §12 P1 valid regardless.
 ### OQ-24
 **Does `ValueRequest` carry incremental deltas or a full desired-state set?**
 
-- **Status:** READY · **Priority:** HIGH · **Owner:** —
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** `ValueRequest` semantics; interacts with [DD-023](design-decisions.md#dd-023), SR-003, [OQ-17](#oq-17)
 - **Raised:** 2026-07-27 (second axis of [DD-025](design-decisions.md#dd-025))
+- **Decision:** 2026-07-27 — **Option A (deltas).** `ADD`/`DELETE` per current IDL.
+  Single-client POC has no restart/reconciliation concerns. Keyed or
+  desired-state model can be revisited for multi-client robustness later.
 
 **Context.** DD-025 settled the *transport* — the in-band DDS topic. This is the
 *semantics*, and it is orthogonal: both models work over that transport.
@@ -989,10 +1022,13 @@ DD-023, which works and is what the current IDL supports.
 **With one shared DataReader, what do per-client read semantics mean — and should
 we keep the WIS polling surface at all?**
 
-- **Status:** READY · **Priority:** HIGH · **Owner:** DG
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** FR-REST-003; scada-web read path design (P3)
 - **Raised:** 2026-07-27, clarifying
   [architecture-comparison.md](architecture-comparison.md) §3.1
+- **Decision:** 2026-07-27 — **Option A (latest-value + WebSocket push).** POC is
+  single client; no WIS polling surface, no per-client state. Multi-client
+  concerns deferred.
 
 **Context.** FR-REST-003 inherits WIS's read surface: `removeFromReaderCache`
 (read vs take), `sampleStateMask` (READ / NOT_READ), `viewStateMask` (NEW /
@@ -1042,6 +1078,16 @@ they are meaningless without a per-client reader.
 comparison. The surviving claim is that the reader cache is a queryable,
 instance-indexed store which a standalone service keeps and an RS Adapter throws
 away. That holds under option A here just as much as under B.
+
+> **Update (2026-07-27, [DD-029](design-decisions.md#dd-029)).** Option A is now
+> effectively forced. The web side is `BEST_EFFORT` + `VOLATILE` + `KEEP_LAST 1`,
+> which *is* a current-value stream: there is no history to poll through and
+> take-once semantics have nothing to take. `removeFromReaderCache`,
+> `sampleStateMask`, and `viewStateMask` were already meaningless on a shared
+> reader; they are now meaningless on the transport as well. Option B
+> (synthesizing per-client state) would additionally have to synthesize
+> completeness the transport never promised. **This entry is ready to be closed as
+> A** — the remaining work is rewriting FR-REST-003, as described above.
 
 ---
 
