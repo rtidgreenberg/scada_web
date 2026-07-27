@@ -707,7 +707,7 @@ decision rather than an omission.
 - **Raised:** 2026-07-27 (was a note inside OQ-14)
 
 **Context.** Every value in the data model is a `Value_t` union over string,
-int32, int64, float32 (declared `double`), and float64. Alarm limits are *also*
+int32, int64, float32, and float64. Alarm limits are *also*
 `Value_t`. So the core alarm operation is comparing one union against another, and
 the two may carry different discriminators.
 
@@ -718,9 +718,6 @@ the two may carry different discriminators.
 2. What does comparing `KIND_STRING` against a numeric limit mean? Presumably an
    error — but the engine must define which error and what
    `on_error` does with it.
-3. Are `KIND_FLOAT32` and `KIND_FLOAT64` interchangeable? On the wire they are
-   both `double` (see FR-XF-005), so a strict discriminator check would reject a
-   comparison that is actually well-defined.
 4. Does the expression language expose the discriminator itself, so a mapping can
    branch on `ValueKind_t`? Almost certainly needed, and it means the type checker
    must handle a value whose static type is a union.
