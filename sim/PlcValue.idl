@@ -1,0 +1,76 @@
+
+module PLC {
+   
+    const long MAX_STRING_VALUE_LENGTH = 32;     
+    const long MAX_HOSTNAME_LENGTH = 32;   
+	const long MAX_NAME_LENGTH = 32;
+
+	typedef string<MAX_HOSTNAME_LENGTH> Hostname_t;  
+	typedef string<MAX_NAME_LENGTH> Name_t;
+
+	typedef long long ValueTime_t;
+	typedef long UniqueId_t;      
+
+	enum ValueKind_t {
+		KIND_STRING,             
+		KIND_INT32,             
+		KIND_INT64,
+		KIND_FLOAT32,
+		KIND_FLOAT64             
+	};
+    
+	@nested
+ 	union Value_t switch (ValueKind_t) {
+	case KIND_STRING:
+		char stringValue[MAX_STRING_VALUE_LENGTH];
+	case KIND_INT32:
+		long int32Value;
+	case KIND_INT64:
+		long long int64Value;
+	case KIND_FLOAT32:
+		double float32Value;
+	case KIND_FLOAT64:
+		double float64Value;
+	};
+    
+	struct Limits_t {
+		Value_t redHigh;
+		Value_t redLow;
+		Value_t yellowHigh;
+		Value_t yellowLow;
+		Value_t greenHigh;
+		Value_t greenLow;
+		boolean active;
+	};
+
+	// Use State Data QoS pattern, only sent at startup, typically
+	struct MetaData {
+		@key UniqueId_t   uid;
+		ValueTime_t       valueTime;
+		Hostname_t        hostname;
+		Limits_t          limits;
+		Name_t            longName;
+	};
+
+	// Use 1-many reliable QoS pattern, perhaps batching, 
+	// durability, reliability depends on whether all values update periodically or upon change
+	struct IdValue {
+		@key UniqueId_t   uid;
+		ValueTime_t       valueTime;
+		Value_t           smoothedValue;
+		Value_t           rawValue;
+	};
+	
+	enum Command_t {
+		ADD,
+		DELETE,
+		METADATA
+	};
+
+	struct ValueRequest {
+		UniqueId_t   uid;
+		Name_t       name;
+		Command_t    command;
+	};
+
+};
