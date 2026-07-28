@@ -164,8 +164,10 @@ if [[ "$DRY_RUN" == "true" ]]; then
     exit 0
 fi
 
-if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
-    exec python3 "$SIM_SCRIPT" --domain-id "$DOMAIN_ID" "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$SCRIPT_DIR/logs/sim.log"
-else
-    exec python3 "$SIM_SCRIPT" --domain-id "$DOMAIN_ID" 2>&1 | tee -a "$SCRIPT_DIR/logs/sim.log"
-fi
+# No tee: the sim owns logs/sim.log through a RotatingFileHandler
+# (sim/plc_publisher.py) and logs to the console through a StreamHandler. See
+# scripts/start-web.sh for why the second writer broke rotation.
+#
+# Without a pipeline, exec really does replace this shell, so SIGTERM and Ctrl-C
+# reach python3 directly instead of a bash parent that outlives it.
+exec python3 "$SIM_SCRIPT" --domain-id "$DOMAIN_ID" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}

@@ -147,8 +147,11 @@ fi
 
 cd "$SCRIPT_DIR"
 
-if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
-    exec python3 -m scada_web "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$SCRIPT_DIR/logs/scada_web.log"
-else
-    exec python3 -m scada_web 2>&1 | tee -a "$SCRIPT_DIR/logs/scada_web.log"
-fi
+# No tee: scada_web owns logs/scada_web.log through a RotatingFileHandler
+# (scada_web/__main__.py) and logs to the console through a StreamHandler. Teeing
+# stdout here gave the file two writers, and tee kept writing to the unlinked
+# inode after a rotation, so rotation stopped bounding disk usage.
+#
+# Without a pipeline, exec really does replace this shell, so SIGTERM and Ctrl-C
+# reach python3 directly instead of a bash parent that outlives it.
+exec python3 -m scada_web ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
