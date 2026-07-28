@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import socket
 from pathlib import Path
 
 import uvicorn
@@ -34,7 +35,16 @@ def main():
         config.server.port = args.port
 
     app = create_app(config)
-    uvicorn.run(app, host=config.server.host, port=config.server.port)
+
+    host = config.server.host
+    port = config.server.port
+    if host == "0.0.0.0":
+        display_host = socket.gethostbyname(socket.gethostname())
+    else:
+        display_host = host
+    print(f"\n  GUI → http://{display_host}:{port}/\n")
+
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
