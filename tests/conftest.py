@@ -124,10 +124,11 @@ def selector_process(sim_process) -> Generator[subprocess.Popen, None, None]:
     """
     if not SELECTOR_BIN.exists():
         pytest.skip(f"scada_selector binary not found at {SELECTOR_BIN}")
+    config_file = REPO_ROOT / "scada_select" / "config.yaml"
     proc = _start_process(
-        [str(SELECTOR_BIN)],
+        [str(SELECTOR_BIN), "--config", str(config_file)],
         label="scada_select",
-        cwd=REPO_ROOT / "scada_select",
+        cwd=REPO_ROOT / "scada_select" / "build",
     )
     time.sleep(2.0)
     yield proc
@@ -135,13 +136,11 @@ def selector_process(sim_process) -> Generator[subprocess.Popen, None, None]:
 
 
 @pytest.fixture(scope="session")
-def scada_web_process(sim_process) -> Generator[subprocess.Popen, None, None]:
+def scada_web_process(selector_process) -> Generator[subprocess.Popen, None, None]:
     """Start the scada_web FastAPI server on the test port.
 
-    Depends on sim_process so DDS is active. Note: without scada_select
-    (currently being rebuilt), no data flows from domain 15 to 16 — the
-    server starts but readers on the presentation domain won't receive
-    samples until the selector is re-integrated.
+    Depends on selector_process so the presentation domain is populated
+    (sim → selector → domain 16 → scada_web readers).
     """
     proc = _start_process(
         [

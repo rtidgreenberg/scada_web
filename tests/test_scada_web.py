@@ -20,11 +20,6 @@ import pytest
 # Mark all tests in this module as requiring the full pipeline
 pytestmark = pytest.mark.pipeline
 
-# Tests that require live data flowing through scada_select (being rebuilt)
-requires_selector = pytest.mark.skip(
-    reason="Requires scada_select (being rebuilt) to forward data to domain 16"
-)
-
 
 class TestHealthAndTopics:
     """REST API: /health, /api/v1/topics"""
@@ -49,7 +44,6 @@ class TestHealthAndTopics:
 class TestRestSamples:
     """REST API: /api/v1/topics/{name}/samples"""
 
-    @requires_selector
     def test_metadata_samples_available(self, pipeline):
         """MetaData is TRANSIENT_LOCAL — samples should be in cache."""
         url = (
@@ -65,7 +59,6 @@ class TestRestSamples:
         for s in samples[:5]:
             assert "uid" in s
 
-    @requires_selector
     def test_value_samples_arrive(self, pipeline):
         """IdValue samples are periodic — poll until at least one appears."""
         url = (
@@ -83,7 +76,6 @@ class TestRestSamples:
             time.sleep(0.5)
         assert len(samples) > 0, "No value samples received within 10s"
 
-    @requires_selector
     def test_single_sample_by_uid(self, pipeline):
         """GET /topics/{name}/samples?uid=N returns that specific uid."""
         uid = 150  # within selector's pre-enabled range (100-500)
@@ -127,7 +119,6 @@ class TestWebSocket:
 
         return _connect
 
-    @requires_selector
     def test_subscribe_receives_samples(self, ws_connect):
         """Subscribe to a uid and verify samples are pushed."""
         with ws_connect() as ws:
@@ -143,7 +134,6 @@ class TestWebSocket:
             assert "data" in msg
             assert msg["topic"] == "PLC::SelectedValueTopic"
 
-    @requires_selector
     def test_subscribe_multiple_uids(self, ws_connect):
         """Subscribe to multiple uids and verify samples arrive for each."""
         target_uids = {120, 130, 140}
@@ -166,7 +156,6 @@ class TestWebSocket:
                 f"Missing uids: {target_uids - received_uids}"
             )
 
-    @requires_selector
     def test_unsubscribe_stops_samples(self, ws_connect):
         """After unsubscribing, no more samples for that uid should arrive."""
         with ws_connect() as ws:
@@ -196,7 +185,6 @@ class TestWebSocket:
                 pass
             assert not got_after_unsub, "Received sample for uid 160 after unsubscribe"
 
-    @requires_selector
     def test_set_period_accepted(self, ws_connect):
         """set_period command should be accepted without error."""
         with ws_connect() as ws:

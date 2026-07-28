@@ -18,13 +18,6 @@ import pytest
 
 pytestmark = pytest.mark.pipeline
 
-# Tests that require live data flowing through scada_select (being rebuilt)
-requires_selector = pytest.mark.skip(
-    reason="Requires scada_select (being rebuilt) to forward data to domain 16"
-)
-
-
-@requires_selector
 class TestE2EDataFlow:
     """Verify data flows end-to-end from sim to web client."""
 
@@ -107,7 +100,6 @@ class TestE2EDataFlow:
                 )
 
 
-@requires_selector
 class TestE2EWebSocketScenarios:
     """Realistic browser-client scenarios over WebSocket."""
 
