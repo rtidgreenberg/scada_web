@@ -50,7 +50,7 @@ a stated invalidation condition is a belief, and beliefs are what rot.
 | ID | Decision | Status | Resolves |
 |---|---|---|---|
 | [DD-001](#dd-001) | Adopt the OMG Web-Enabled DDS resource model | ACCEPTED | — |
-| [DD-002](#dd-002) | Operate on `DynamicData` throughout; no generated types | ACCEPTED | — |
+| [DD-002](#dd-002) | Operate on `DynamicData` throughout; no generated types | SUPERSEDED by DD-052 | — |
 | [DD-003](#dd-003) | Fix `to`/`from` to mean view/wire, not output/input | ACCEPTED | — |
 | [DD-004](#dd-004) | Classify mapping invertibility at compile time | ACCEPTED | — |
 | [DD-005](#dd-005) | Require `<key_mapping>`; restrict it to pure assignment | ACCEPTED | — |
@@ -76,6 +76,8 @@ a stated invalidation condition is a belief, and beliefs are what rot.
 | [DD-025](#dd-025) | Enable/disable ids over the in-band DDS topic, not Routing Service remote administration | ACCEPTED | — |
 | [DD-026](#dd-026) | scada-selector uses compiled types — which rules out a Routing Service Processor | ACCEPTED | OQ-23 (Role 1) |
 | [DD-027](#dd-027) | scada-selector downrates per id; scada-web relays ids **and rate** | ACCEPTED | — |
+| [DD-052](#dd-052) | scada-web uses Python generated types, not DynamicData | ACCEPTED | — |
+| [DD-053](#dd-053) | Field mapping is Python code, not config | ACCEPTED | — |
 
 ---
 
@@ -111,7 +113,7 @@ complaint, in which case add a convenience layer — do not replace this model.
 ### DD-002
 **Operate on `DynamicData` throughout; require no generated type support code.**
 
-- **Status:** ACCEPTED — **scoped to scada-web (Role 2)** by [DD-026](#dd-026)
+- **Status:** SUPERSEDED by [DD-052](#dd-052) — **scoped to scada-web (Role 2)** by [DD-026](#dd-026)
 - **Date:** 2026-07-27 · **Amended:** 2026-07-27 · **Affects:** FR-DDS-006, FR-TYPE-001
 
 > **Scope amendment.** This applies to **scada-web only**. scada-selector uses
@@ -2048,3 +2050,99 @@ state. `read()` (not `take()`) ensures the cache always holds the last value.
 
 **Revisit if.** Metadata QoS changes to KEEP_ALL (multiple samples per
 instance), requiring per-sample forwarding tracking.
+
+---
+
+### DD-052
+**scada-web uses Python generated types, not DynamicData.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-28 · **Supersedes:** [DD-002](#dd-002) · **Affects:** FR-DDS-006, FR-TYPE-001, scada-web gateway, mapping layer
+
+**Decision.** scada-web subscribes using Python generated types produced by
+`rtiddsgen -language python`. The DynamicData approach is abandoned for this
+component. View types are plain Python dataclasses; field mapping is typed
+attribute access, not string-path member lookup.
+
+**Context.** DD-002's premise was "a gateway cannot know its types at build time."
+That premise no longer holds: the PLC data model is commissioned SCADA
+infrastructure — it does not change at runtime. The types (`IdValue`, `MetaData`,
+`ValueRequest`) are static and known. Using DynamicData for static types imposes
+string-based access, manual union discrimination, and char-array patching
+(current `mapping.py`) with no offsetting benefit.
+
+Generated types give: IDE autocompletion, import-time error detection for typos,
+native union discriminator access, and direct attribute mapping to smaller view
+types — which is the core job of scada-web's presentation layer.
+
+**Alternatives.**
+(a) Keep DynamicData + XML types. Rejected: string-based access makes the
+field-mapping goal harder, not easier. Typos discovered at first sample arrival
+rather than at import time.
+(b) XML types for transport, convert to generated types at the reader boundary.
+Rejected: unnecessary conversion step; if generated types are available, read
+with them directly.
+
+**Consequences.**
+- One-time codegen step: `rtiddsgen -language python -d scada_web/gen/ dds/idl/PlcValue.idl`.
+  Output is committed (types are static; no CI codegen pipeline needed).
+- `mapping.py` (char-array and union patching) becomes unnecessary and can be removed.
+- The gateway creates typed DataReaders directly instead of DynamicData readers.
+- DD-026's observation stands: Role 1 (selector) and Role 2 (web) now **both**
+  use compiled/generated types, but for the same reason — the type set is fixed.
+
+**Revisit if.** scada-web is ever required to handle types unknown at build time
+(e.g., a generic DDS web gateway for arbitrary domains). In that case, DynamicData
+returns — but that would be a different product, not this SCADA system.
+
+---
+
+### DD-053
+**Field mapping is Python code (view classmethods), not configuration.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-28 · **Resolves:** — · **Affects:** scada-web mapping/view layer
+
+**Decision.** The mapping from DDS generated types to smaller web-facing view
+types is defined as Python classmethods on the view dataclass, not in YAML or
+XML configuration.
+
+```python
+@dataclass
+class TagView:
+    uid: int
+    value: float
+    timestamp: int
+
+    @classmethod
+    def from_idvalue(cls, s: PLC.IdValue) -> "TagView":
+        return cls(
+            uid=s.uid,
+            value=s.smoothedValue.float64Value,
+            timestamp=s.valueTime,
+        )
+```
+
+**Context.** The goal is to define smaller view types and map DDS fields into
+them. A config-driven mapping (YAML paths like `"smoothedValue.float64Value"`)
+reintroduces the string-path problem that DD-052 eliminates. Python code gives
+typed attribute access, IDE completion, and import-time validation — the same
+benefits that motivated the move to generated types.
+
+**Alternatives.**
+(a) YAML mapping config with string field paths. Rejected: negates the type
+safety gained by DD-052; requires a path parser, resolver, and runtime
+validation infrastructure that Python's attribute access provides for free.
+(b) Declarative lambda dict (`{"value": lambda s: s.smoothedValue.float64Value}`).
+Viable but less readable and less testable than a classmethod. Rejected in
+favour of explicit classmethods that are individually unit-testable.
+
+**Consequences.**
+- Mapping changes require editing Python, not config. Acceptable: the people
+  editing this system write Python, and the types are static.
+- Each view type is self-contained: definition + mapping in one place.
+- Union discrimination and edge cases (e.g., choosing the active branch of
+  `Value_t`) are handled with normal Python, not a DSL.
+- No mapping engine, no parser, no validator — just functions.
+
+**Revisit if.** Non-Python operators need to edit mappings without touching code.
+In that case, add a thin YAML layer that generates the classmethods — do not
+replace this pattern with a runtime interpreter.
