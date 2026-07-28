@@ -52,8 +52,7 @@ wis:
 # wis-config.xml), which is independent of this config's participant key.
 participants:
   plc_domain:
-    domain: 15  # PLC::FIELD_DOMAIN_ID — must match the sim's --domain-id
-    wis_name: Plant
+    domain: 15  # WIS participant uses DDS domain 15
 
 # --- Topic subscriptions ---
 # Topic name defaults to type name if type: is omitted. Names here are the DDS

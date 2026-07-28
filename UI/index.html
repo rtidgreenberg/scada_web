@@ -12,19 +12,20 @@
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.45; }
   header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .3px; }
   header h1 span { color: var(--accent); }
   .spacer { flex: 1; }
   .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 3px rgba(255,255,255,.03); }
   .dot.on { background: var(--green); } .dot.off { background: var(--red); } .dot.pending { background: var(--yellow); }
 
-  input[type=text] { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 13px; outline: none; font-family: var(--mono); }
+  input[type=text] { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 14px; outline: none; font-family: var(--mono); }
   input[type=text]:focus { border-color: var(--accent); }
-  button { background: var(--accent); color: #04121c; border: none; font-weight: 600; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); font-weight: 500; }
+  button { background: var(--accent); color: #04121c; border: none; font-weight: 700; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; min-height: 38px; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); font-weight: 600; }
+  .controls button { min-width: 92px; }
   button:hover { filter: brightness(1.08); } button:disabled { opacity: .4; cursor: not-allowed; }
 
   main { padding: 20px; max-width: 1400px; margin: 0 auto; }
@@ -40,14 +41,16 @@
   .cfg-actions { grid-column: 1 / -1; display: flex; gap: 10px; padding-top: 6px; }
 
   .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  .controls-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .controls-row-secondary { margin-left: 6px; }
   .controls label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
-  .count { color: var(--muted); font-size: 13px; }
-  .req-status { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+  .count { color: var(--muted); font-size: 14px; }
+  .req-status { font-size: 14px; color: var(--muted); font-family: var(--mono); }
   .req-status b { color: var(--accent); }
   input.small { width: 96px; }
 
-  .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 16px; line-height: 1.5; }
-  .hint code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .hint { color: var(--muted); font-size: 13.5px; margin: 0 0 16px; line-height: 1.55; }
+  .hint code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
 
   table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
@@ -122,22 +125,24 @@
 
   <div class="controls">
     <label>Value request</label>
-    <input type="text" id="reqId" placeholder="ID (uid)" size="8" spellcheck="false" />
-    <input type="text" id="reqInterval" class="small" placeholder="interval ms" value="1000" spellcheck="false" title="period_ms — max publish rate for this uid; 0 = every sample" />
-    <button id="reqSendBtn">Send request</button>
-    <button class="ghost" id="reqCancelBtn">Cancel</button>
-    <span class="req-status" id="reqStatus">no active request</span>
+    <div class="controls-row">
+      <input type="text" id="reqId" placeholder="ID (uid)" size="8" spellcheck="false" />
+      <button id="reqAddBtn">ADD</button>
+      <button class="ghost" id="reqDeleteBtn">DELETE</button>
+      <span class="req-status" id="reqStatus">send ADD or DELETE</span>
+    </div>
+    <div class="controls-row controls-row-secondary">
+      <input type="text" id="reqPeriod" class="small" placeholder="period ms" value="1000" spellcheck="false" title="period_ms — send a request with uid 0 and this period" />
+      <button id="reqSendBtn">SEND</button>
+    </div>
     <div class="spacer" style="flex:1"></div>
     <span class="count" id="count">0 instances</span>
   </div>
 
   <p class="hint">
     Bound to the pre-configured WIS DataReaders for <code>PLC::IdValueTopic</code> / <code>PLC::MetaDataTopic</code> and the
-    <code>ValueRequestWriter</code>, over the WebSocket API. All received instances appear in the table. A
-    <strong>value request</strong> is <strong>passed straight through WIS</strong> and published on the
-    <code>PLC::ValueRequestTopic</code> DDS topic as <code>ValueRequest{uid, command, period_ms}</code> —
-    <strong>only one request is active at a time</strong>, so sending a new ID publishes <code>DELETE</code> for the
-    previous, then <code>ADD</code> for the new. Click a row to inspect the raw samples.
+    <code>ValueRequestWriter</code>, over the WebSocket API. All received instances appear in the table. Use
+    <strong>ADD</strong> and <strong>DELETE</strong> for a specific UID, or use <strong>SEND</strong> with UID 0 and a period to publish a period-only request. Click a row to inspect the raw samples.
   </p>
 
   <table id="grid">
@@ -213,8 +218,6 @@ const BIND_VALUEREQ = "valuereq";
 // ─── State ───────────────────────────────────────────────────────────────────
 // uid -> { meta, metaRaw, metaTs, val, valRaw, valRawSample, valTs }
 const tags = new Map();
-// Only one ValueRequest may be active at a time.
-let activeRequest = null;       // { uid:int, period:int } or null
 let ws = null;
 let connected = false;   // true only after HELLO_OK
 let manualClose = false;
@@ -268,6 +271,8 @@ function ingest(bindId, sample) {
       active: lim.active,
     };
     t.metaRaw = d; t.metaTs = ts;
+    logDbg("in", "←", `MetaData uid=${uid} received`);
+    console.debug("MetaData received", { uid, sample: d });
   } else { // BIND_IDVALUE
     t.val = num(unionScalar(d.smoothedValue));
     t.valRaw = num(unionScalar(d.rawValue));
@@ -319,8 +324,7 @@ function render() {
     const limits = t.meta
       ? `<span class="limits">Y:[${fmtNum(meta.yellowLow)}, ${fmtNum(meta.yellowHigh)}]&nbsp;&nbsp;R:[${fmtNum(meta.redLow)}, ${fmtNum(meta.redHigh)}]</span>`
       : `<span class="limits">—</span>`;
-    const req = (activeRequest && activeRequest.uid === uid) ? "requested" : "";
-    html += `<tr class="row ${stale} ${req}" data-uid="${uid}">` +
+    html += `<tr class="row ${stale}" data-uid="${uid}">` +
       `<td class="uid">${uid}</td>` +
       `<td class="name">${meta.name != null ? esc(meta.name) : "<span class='waiting-cell'>—</span>"}</td>` +
       `<td>${meta.host != null ? esc(meta.host) : "—"}</td>` +
@@ -348,18 +352,39 @@ rowsEl.addEventListener("click", e => {
 });
 setInterval(() => { document.querySelectorAll(".ago").forEach(x => { x.textContent = agoText(Number(x.dataset.ts)); }); }, 1000);
 
-// ─── Value request (single active) ───────────────────────────────────────────
+// ─── Value request actions ─────────────────────────────────────────────────
 let reqSeq = 0;
 function valueReqMessage(uid, command, period) {
-  // Write ValueRequest{uid, name, command, period_ms} via a REQUEST message — the
-  // WebSocket equivalent of POST-ing the sample to the writer's REST URI. This avoids
-  // bind_datawriter + b_req, which WIS 7.7 rejects here ("Unknown bind id").
+  // ValueRequest is a DDS union switched on Command_t. In RTI Web DDS JSON, a
+  // union sample is an object with exactly ONE key: the selected member. The
+  // discriminator is inferred from which member is present — there is no
+  // "command" field in the type, and including one (or any second key) makes
+  // WIS reject the sample with "Invalid data sample" (return_code 5).
+  //   ADD           -> addRequest{uid,name}
+  //   DELETE/METADATA -> uid   (both labels share the `uid` member)
+  //   PERIOD        -> periodRequest{period_ms}
+  let body;
+  switch (command) {
+    case "ADD":
+      body = { addRequest: { uid, name: "" } };
+      break;
+    case "DELETE":
+    case "METADATA":
+      body = { uid };
+      break;
+    case "PERIOD":
+      body = { periodRequest: { period_ms: period } };
+      break;
+    default:
+      body = { uid };
+  }
+
   return JSON.stringify({
     kind: "request",
     id: "vr-" + (++reqSeq),
     method: "POST",
     uri: cfg("valueReqUri"),
-    body: { uid: uid, name: "", command: command, period_ms: period },
+    body,
   });
 }
 function sendValueRequest(uid, command, period) {
@@ -369,33 +394,31 @@ function sendValueRequest(uid, command, period) {
   logDbg("out", "→", m);
   return true;
 }
-function updateReqStatus() {
-  const s = el("reqStatus");
-  if (activeRequest) s.innerHTML = `active: <b>uid ${activeRequest.uid}</b> @ ${activeRequest.period} ms`;
-  else s.textContent = "no active request";
-  el("reqCancelBtn").disabled = !activeRequest;
+function updateReqStatus(message) {
+  el("reqStatus").textContent = message;
 }
-function submitRequest() {
+function sendRequest(command) {
   const uid = parseInt(el("reqId").value.trim(), 10);
   if (!Number.isInteger(uid)) { el("reqId").focus(); return; }
-  let period = parseInt(el("reqInterval").value.trim(), 10);
-  if (!Number.isInteger(period) || period < 0) period = 0;   // 0 = forward every sample
   if (!ws || ws.readyState !== WebSocket.OPEN) { setStatus("off", "connect first"); el("cfg").open = true; return; }
-  // Enforce a single active request: drop the previous selection before adding the new one.
-  if (activeRequest && activeRequest.uid !== uid) sendValueRequest(activeRequest.uid, "DELETE", 0);
-  sendValueRequest(uid, "ADD", period);            // re-ADD of the same uid updates its rate
-  activeRequest = { uid, period };
-  updateReqStatus(); render();
+  const period = 0;
+  const sent = sendValueRequest(uid, command, period);
+  if (sent) updateReqStatus(`${command} request sent for uid ${uid}`);
 }
-function cancelRequest() {
-  if (activeRequest) sendValueRequest(activeRequest.uid, "DELETE", 0);
-  activeRequest = null;
-  updateReqStatus(); render();
+function submitAddRequest() { sendRequest("ADD"); }
+function submitDeleteRequest() { sendRequest("DELETE"); }
+function submitPeriodRequest() {
+  const period = parseInt(el("reqPeriod").value.trim(), 10);
+  if (!Number.isInteger(period) || period < 0) { el("reqPeriod").focus(); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { setStatus("off", "connect first"); el("cfg").open = true; return; }
+  const sent = sendValueRequest(0, "PERIOD", period);
+  if (sent) updateReqStatus(`PERIOD request sent @ ${period} ms`);
 }
-el("reqSendBtn").addEventListener("click", submitRequest);
-el("reqCancelBtn").addEventListener("click", cancelRequest);
-el("reqId").addEventListener("keydown", e => { if (e.key === "Enter") submitRequest(); });
-el("reqInterval").addEventListener("keydown", e => { if (e.key === "Enter") submitRequest(); });
+el("reqAddBtn").addEventListener("click", submitAddRequest);
+el("reqDeleteBtn").addEventListener("click", submitDeleteRequest);
+el("reqSendBtn").addEventListener("click", submitPeriodRequest);
+el("reqId").addEventListener("keydown", e => { if (e.key === "Enter") submitAddRequest(); });
+el("reqPeriod").addEventListener("keydown", e => { if (e.key === "Enter") submitPeriodRequest(); });
 
 // ─── Debug log ───────────────────────────────────────────────────────────────
 const dbgLogEl = el("dbgLog");
@@ -441,7 +464,9 @@ async function ensureConnectionResource() {
   // WIS 7.7 requires the websocket connection resource to exist before the socket
   // can open: POST /dds/v1/websocket_connections with { "name": <connName> }.
   // Older RTI examples may accept an array-wrapped payload, so try the object
-  // form first and fall back to array form if needed.
+  // form first and fall back to array form if needed. We do this in the background
+  // and with a short timeout so the socket connect is not blocked by a slow/failing
+  // HTTP pre-step.
   const base = cfg("httpBase").replace(/\/+$/, "");
   const name = cfg("connName");
   if (!base || !name) return null;
@@ -455,31 +480,44 @@ async function ensureConnectionResource() {
     },
     body: JSON.stringify({ name }),
   };
-  let r = await fetch(url, init);
-  if (r && !r.ok && (r.status === 400 || r.status === 422)) {
-    logDbg("sys", "•", "retrying websocket connection create with legacy array payload");
-    init.body = JSON.stringify([{ name }]);
-    r = await fetch(url, init);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3000);
+  try {
+    let r = await fetch(url, { ...init, signal: controller.signal });
+    if (r && !r.ok && (r.status === 400 || r.status === 422)) {
+      logDbg("sys", "•", "retrying websocket connection create with legacy array payload");
+      init.body = JSON.stringify([{ name }]);
+      r = await fetch(url, { ...init, signal: controller.signal });
+    }
+    return r;
+  } catch (e) {
+    if (e.name === "AbortError") {
+      logDbg("sys", "•", "websocket connection create timed out after 3s; continuing with socket connect");
+    } else {
+      logDbg("err", "•", `create-connection request failed: ${e.message}`);
+    }
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return r;
 }
 
 async function connect() {
   saveCfg();
   manualClose = false;
   connected = false;
+  el("reqAddBtn").disabled = true;
+  el("reqDeleteBtn").disabled = true;
   el("reqSendBtn").disabled = true;
   clearTimeout(reconnectTimer);
   const url = cfg("wsUrl");
   if (!url) { setStatus("off", "set WebSocket URL"); el("cfg").open = true; return; }
-  // Create the WIS websocket connection resource first (required before the socket opens).
+  // Create the WIS websocket connection resource in the background. It is best-effort,
+  // and we should not block the socket connect on it.
   setStatus("pending", "creating connection…");
-  try {
-    const r = await ensureConnectionResource();
+  void ensureConnectionResource().then(r => {
     if (r) logDbg((r.ok || r.status === 409) ? "sys" : "err", "•", `POST /dds/v1/websocket_connections '${cfg("connName")}' → HTTP ${r.status}`);
-  } catch (e) {
-    logDbg("err", "•", `create-connection request failed: ${e.message} (CORS? wrong host?) — trying socket anyway`);
-  }
+  });
   if (manualClose) return;
   setStatus("pending", "connecting…");
   try { ws = new WebSocket(url); }
@@ -501,13 +539,13 @@ async function connect() {
       setStatus("on", "connected");
       reconnectDelay = 500;
       connected = true;
+      el("reqAddBtn").disabled = false;
+      el("reqDeleteBtn").disabled = false;
       el("reqSendBtn").disabled = false;
       logDbg("in", "←", raw);
       const bm = bindMessage();
       ws.send(bm);                 // bind readers + ValueRequest writer
       logDbg("out", "→", bm);
-      // Re-assert the active request after (re)connect / selector restart.
-      if (activeRequest) sendValueRequest(activeRequest.uid, "ADD", activeRequest.period);
       return;
     }
     // Log every other frame verbatim so nothing WIS sends is silently dropped.
@@ -517,7 +555,7 @@ async function connect() {
     handleMessage(msg);
   };
 
-  ws.onclose = () => { setStatus("off", "disconnected"); connected = false; el("reqSendBtn").disabled = true; if (!manualClose) scheduleReconnect(); };
+  ws.onclose = () => { setStatus("off", "disconnected"); connected = false; el("reqAddBtn").disabled = true; el("reqDeleteBtn").disabled = true; el("reqSendBtn").disabled = true; if (!manualClose) scheduleReconnect(); };
   ws.onerror = () => { console.warn("WIS websocket error"); };
 }
 
@@ -574,8 +612,10 @@ el("createConnBtn").addEventListener("click", createConnection);
 el("resetCfgBtn").addEventListener("click", resetCfg);
 
 loadCfg();
+el("reqAddBtn").disabled = true;
+el("reqDeleteBtn").disabled = true;
 el("reqSendBtn").disabled = true;
-updateReqStatus();
+updateReqStatus("send ADD or DELETE");
 render();
 // Auto-connect if a WebSocket URL is configured.
 if (cfg("wsUrl")) connect(); else el("cfg").open = true;
