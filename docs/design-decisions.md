@@ -1919,3 +1919,32 @@ shows starvation.
 **Revisit if.** Profiling shows `on_sample` dispatch within a single
 `take_async` batch exceeds 5 ms, or `rti.asyncio` is removed from the Connext
 Python distribution.
+
+---
+
+### DD-048
+**Track `instance_handle → uid` in selection table; don't call `key_value()`.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-44](questions.md#oq-44) · **Affects:** scada-selector dispatch loop
+
+**Decision.** The selector maintains a `dict[InstanceHandle, int]` mapping,
+updated on every valid sample (`handle_map[info.instance_handle] = sample.uid`).
+Lifecycle events look up the uid from this map instead of calling
+`reader.key_value()`. The entry is removed when a NOT_ALIVE disposition is
+forwarded.
+
+**Context.** `key_value()` can throw if the instance has been purged from the
+reader cache between `take()` and the call. The race window is small but real
+under resource-limit pressure, and the failure mode (uncaught exception in the
+dispatch loop) is a crash.
+
+**Alternatives.** (a) try/catch around `key_value()` — rejected because it makes
+lifecycle forwarding silently lossy in an edge case. (b) High `max_instances` +
+assert — rejected because it converts a rare race into a crash under growth.
+
+**Consequences.** One additional dict insert per valid sample (negligible).
+The map grows to at most `max_instances` entries. No DDS API call needed for
+lifecycle key recovery.
+
+**Revisit if.** The DDS API gains a guaranteed-safe `key_value()` that never
+throws on purged handles, making the map redundant.

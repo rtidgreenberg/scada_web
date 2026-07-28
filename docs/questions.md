@@ -77,7 +77,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-20](#oq-20) | Single source of truth for types across components? | ANSWERED | — | — | → [DD-026](design-decisions.md#dd-026) |
 | [OQ-21](#oq-21) | Are trends and a historian in scope? | DECIDED | MEDIUM | DG | Browser scope |
 | [OQ-3](#oq-3) | Is `/dds/rest1` wire compatibility required? | DECIDED | MEDIUM | DG | Web surface design |
-| [OQ-1](#oq-1) | RTI licensing/support position on reimplementing WIS | OPEN | MEDIUM | DG | Productization, not the PoC |
+| [OQ-1](#oq-1) | RTI licensing/support position on reimplementing WIS | MOOT | MEDIUM | DG | Productization, not the PoC |
 | [OQ-26](#oq-26) | One DDS domain across the RT boundary, or two? | RESOLVED | MEDIUM | DG | Selector deployment, OQ-22 |
 | [OQ-27](#oq-27) | Should `ValueRequest` be keyed + `TRANSIENT_LOCAL` for phase 0? | SUPERSEDED by [DD-034](design-decisions.md#dd-034)/[DD-036](design-decisions.md#dd-036) | HIGH | DG | Control plane design, SR-003 |
 | [OQ-28](#oq-28) | `METADATA` sentinel uid: magic value or new enum? | DEFERRED → [DD-039](design-decisions.md#dd-039) | MEDIUM | DG | IDL contract, catalogue bootstrap |
@@ -96,7 +96,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-41](#oq-41) | Programmatic types (sim) vs XML types (gateway) — interop validated? | DECIDED | MEDIUM | DG | End-to-end correctness |
 | [OQ-42](#oq-42) | Test strategy: what tests does the PoC need? | DECIDED | MEDIUM | DG | Regression visibility |
 | [OQ-43](#oq-43) | What concrete value is the `METADATA` sentinel uid? | DEFERRED — phase 0 uses preset range (DD-039) | MEDIUM | DG | Catalogue bootstrap, IDL contract |
-| [OQ-44](#oq-44) | What happens if `key_value()` is called on a purged instance handle? | OPEN | MEDIUM | DG | Lifecycle forwarding correctness |
+| [OQ-44](#oq-44) | What happens if `key_value()` is called on a purged instance handle? | DECIDED → [DD-048](design-decisions.md#dd-048) | MEDIUM | DG | Lifecycle forwarding correctness |
 | [OQ-45](#oq-45) | Selector graceful-shutdown contract: dispose own instances? | OPEN | MEDIUM | DG | Downstream disconnect detection |
 | [OQ-46](#oq-46) | `SelectedValue` topic type registration name — must match `IdValue`? | OPEN | MEDIUM | DG | Discovery, scada-web reader setup |
 | [OQ-47](#oq-47) | Selector liveness detection from scada-web | OPEN | LOW | DG | Distinguishing "no updates" from "selector gone" |
@@ -168,9 +168,10 @@ status and priority, so it is not repeated here.
 **What is RTI's licensing and support position on reimplementing WIS behavior and
 reusing the Routing Service transformation plugin interface?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
-- **Blocks:** Productization. Does **not** block the PoC.
-- **Raised:** 2026-07-27 (TRD RISK-7) · **Downgraded:** 2026-07-27 (PoC scoping)
+- **Status:** MOOT · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** —
+- **Raised:** 2026-07-27 (TRD RISK-7) · **Resolved:** 2026-07-27
+- **Resolution:** Internal RTI license; no external licensing concern applies.
 
 **Downgraded from BLOCKING.** An internal prototype that never fronts a
 production domain does not raise the question with any urgency. It becomes
@@ -1745,9 +1746,12 @@ and a corresponding reservation in the sim's id allocator.
 ### OQ-44
 **What happens if `key_value()` is called on a purged instance handle?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Lifecycle forwarding correctness
 - **Raised:** 2026-07-27 (scada-select architecture review)
+- **Decision:** 2026-07-27 — [DD-048](design-decisions.md#dd-048). Option (c): maintain a
+  `handle → uid` map in the selection table, updated on every valid sample.
+  Eliminates `key_value()` dependency entirely.
 
 **Context.** §3.4 and §4.3 recover the uid from an invalid sample via
 `reader.key_value(key_holder, info.instance_handle())`. If the reader's resource
