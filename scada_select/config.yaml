@@ -1,8 +1,8 @@
 # scada-selector configuration
 #
 # Fixed DDS topology is controlled by domain/topic names and shared QoS profiles.
-# Selection defaults are loaded at startup; runtime ValueRequest ADD commands may
-# override the global minimum separation.
+# Selection defaults are loaded at startup; the PERIOD command (ValueRequest union)
+# overrides the global minimum separation at runtime.
 
 field_domain: 0
 presentation_domain: 1
@@ -10,7 +10,7 @@ qos_profiles: ../dds/qos/profiles.xml
 
 selection:
   # Default minimum time between forwarded SelectedValue samples for one uid.
-  # ValueRequest.period_ms overrides this at runtime when nonzero.
+  # The PERIOD command overrides this at runtime when period_ms is nonzero.
   # Set to 0 to forward every selected field sample by default.
   default_min_separation_ms: 250
 

@@ -96,7 +96,9 @@ struct NDDSUSERDllExport IdValue {
 So field access is `sample.data().uid`, **not** `sample.data().uid()`. Much
 existing RTI example code and documentation shows the getter/setter style from
 the older codegen, which does not apply here. `Command_t` becomes a scoped
-`enum class`.
+`enum class`, and `ValueRequest` is a **discriminated union** switched on
+`Command_t` — field access uses the discriminator (`r._d()`) and case members
+(`r.addRequest()`, `r.uid()`, `r.periodRequest()`).
 
 This is the concrete reason compiled types are faster than `DynamicData` for this
 component: `s.data().uid` is a struct member load resolved at compile time, where
@@ -111,7 +113,8 @@ control processed before data so a tag enabled in a batch is forwarded in the sa
 pass.
 
 ```cpp
-#include <unordered_set>
+#include <unordered_map>
+#include <chrono>
 #include <dds/dds.hpp>
 #include "PlcValue.hpp"
 
@@ -140,7 +143,13 @@ dds::pub::DataWriter<PLC::IdValue> selected_writer(
     presentation_publisher, selected_topic,
     qos_provider.datawriter_qos("presentation::selected_value"));
 
-std::unordered_set<int32_t> enabled;
+// Selection state — global separation + per-uid tracking.
+struct TagState {
+    std::chrono::steady_clock::time_point last_emitted {};
+};
+constexpr uint32_t default_min_separation_ms {250};  // from config.yaml
+std::unordered_map<int32_t, TagState> subscriptions;
+uint32_t min_separation_ms {default_min_separation_ms};
 
 dds::sub::cond::ReadCondition request_ready(
     request_reader, dds::sub::status::DataState::any(),
@@ -148,10 +157,19 @@ dds::sub::cond::ReadCondition request_ready(
         for (const auto &s : request_reader.take()) {
             if (!s.info().valid()) continue;
             const PLC::ValueRequest &r = s.data();
-            switch (r.command) {
-                case PLC::Command_t::ADD:      enabled.insert(r.uid); break;
-                case PLC::Command_t::DELETE:   enabled.erase(r.uid);  break;
-                case PLC::Command_t::METADATA: /* separate path */    break;
+            switch (r._d()) {
+                case PLC::Command_t::ADD:
+                    subscriptions[r.addRequest().uid] = {};
+                    break;
+                case PLC::Command_t::DELETE:
+                case PLC::Command_t::METADATA:
+                    subscriptions.erase(r.uid());
+                    break;
+                case PLC::Command_t::PERIOD:
+                    if (r.periodRequest().period_ms != 0) {
+                        min_separation_ms = r.periodRequest().period_ms;
+                    }
+                    break;
             }
         }
     });
@@ -159,11 +177,19 @@ dds::sub::cond::ReadCondition request_ready(
 dds::sub::cond::ReadCondition value_ready(
     value_reader, dds::sub::status::DataState::new_data(),
     [&]() {
+        const auto now = std::chrono::steady_clock::now();
         for (const auto &s : value_reader.take()) {
             if (!s.info().valid()) continue;
-            if (enabled.count(s.data().uid)) {
-                selected_writer.write(s.data());
+            auto it = subscriptions.find(s.data().uid);
+            if (it == subscriptions.end()) continue;
+            TagState &st = it->second;
+            const auto period = std::chrono::milliseconds(min_separation_ms);
+            if (min_separation_ms != 0
+                && now - st.last_emitted < period) {
+                continue;
             }
+            st.last_emitted = now;
+            selected_writer.write(s.data());
         }
     });
 
@@ -183,9 +209,9 @@ the range goes out of scope. Do not retain references into it past that point.
 
 [DD-027](../../docs/design-decisions.md#dd-027) makes selection two-dimensional: by id **and**
 by a global minimum separation. The selector loads
-`selection.default_min_separation_ms` from YAML at startup; a nonzero
-`ValueRequest.period_ms` overrides that global value at runtime. The selected set
-is per-uid, while the separation is process-wide:
+`selection.default_min_separation_ms` from YAML at startup; the `PERIOD` command
+(a union case on `ValueRequest`) overrides that global value at runtime. The
+selected set is per-uid, while the separation is process-wide:
 
 ```cpp
 struct TagState {
@@ -236,9 +262,9 @@ Four choices worth stating explicitly, all defaults rather than the only options
   a real defect if missed.
 - **`steady_clock`, not `valueTime`.** Source timestamps may be irregular or
   skewed; the decimation decision is about *our* output cadence.
-- **`period_ms == 0` means selector YAML default**, so the startup minimum
-    separation remains centralized unless the web UI sends a nonzero global runtime
-    override. Set the YAML default to `0` for every-sample forwarding.
+- **`PERIOD` with `period_ms == 0` means selector YAML default**, so the startup
+    minimum separation remains centralized unless the web UI sends a nonzero
+    `PERIOD` command. Set the YAML default to `0` for every-sample forwarding.
 
 Invalid samples carry only the key, so recovering the uid needs
 `reader.key_value(key_holder, info.instance_handle())` rather than a payload read —

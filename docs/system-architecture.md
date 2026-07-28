@@ -156,7 +156,7 @@ simpler and bounded.
     ═══════╪══════ hard RT ─│─ soft RT ══════╪═══════════════  ← the boundary
            │                                  │
    PLC::SelectedValue                  subscription request
-   (IdValue · BEST_EFFORT · VOLATILE)    (uid · enabled · period_ms)
+   (IdValue · BEST_EFFORT · VOLATILE)    (union: ADD/DELETE/METADATA/PERIOD)
    PLC::SelectedMetaData                 (RELIABLE + KEEP_ALL — the
    (MetaData · BEST_EFFORT · on request)  one exception, DD-023/DD-029)
            │                                  │

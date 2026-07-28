@@ -222,8 +222,8 @@ component.
 
 [DD-027](../../docs/design-decisions.md#dd-027). The selector loads
 `selection.default_min_separation_ms` from YAML at startup; the web interface can
-override that global value at runtime by sending a nonzero
-`ValueRequest.period_ms`. Selected ids are per-uid; separation is global:
+override that global value at runtime by sending a `PERIOD` command with a nonzero
+`period_ms`. Selected ids are per-uid; separation is global:
 
 ```cpp
 struct TagState {
@@ -239,7 +239,7 @@ alternative that seems obvious:
 |---|---|---|
 | **Decimate on arrival** | Timer-driven emit | O(1) per sample, no timers, and naturally correct when the source is slower than the requested rate. A timer spaces output more evenly but must hold samples and wake up — not worth it for display data. |
 | **`steady_clock`** | The payload's `valueTime` | Source stamps may be irregular or skewed. The decimation decision is about *our* output cadence, not the field's. |
-| **`period_ms == 0` = selector YAML default** | `0` = every sample | The startup default is operational config; runtime messages only override the global setting when nonzero. Set the YAML default to `0` if every sample is desired. |
+| **`period_ms == 0` = selector YAML default** | `0` = every sample | The startup default is operational config; the `PERIOD` command only overrides the global setting when nonzero. Set the YAML default to `0` if every sample is desired. |
 | **Latest sample wins** | Oldest, or aggregate | Display data: the freshest value is the useful one. Nothing is averaged — that would be a model change (§3.2). |
 
 The rate axis is not a nicety. It is what keeps the volume reaching scada-web's
@@ -337,8 +337,8 @@ recorded:
 [OQ-17](../../docs/questions.md#oq-17) and [OQ-24](../../docs/questions.md#oq-24) would retire both by
 making the request topic keyed desired state plus durable global configuration,
 which is idempotent and lets a restarted selector recover its whole subscription
-set from the middleware. Adding `period_ms` did not take that step, so **both
-consequences stand today.**
+set from the middleware. The union redesign (adding `PERIOD` as a separate command)
+did not take that step, so **both consequences stand today.**
 
 **And under [DD-029](../../docs/design-decisions.md#dd-029) that stays true on both
 sides of the boundary — the title needs no further qualification.** An earlier draft
@@ -517,23 +517,24 @@ scada-web a "value for an unknown uid" transient it would otherwise have to hold
 ### 4.2 Control-Plane Flow
 
 ```
-scada-web: interest 0→1 for uid=5; global separation is 250ms
+scada-web: interest 0→1 for uid=5
     │
-    ▼  write ValueRequest{uid=5, command=ADD, period_ms=250}
+    ▼  write ValueRequest{ADD, addRequest={uid=5, name="Tank.Level"}}
 DDS (PLC::ValueRequest, RELIABLE + KEEP_ALL)
     │
     ▼  request_reader.take()  — DataState::any(), so lifecycle is visible too
-ControlPlane
-  │  ADD      → table.add(uid); if period_ms != 0, update global separation
+ControlPlane — switch on discriminator r._d():
+    │  ADD      → table.add(addRequest.uid)
     │  DELETE   → table.erase(uid)
     │  METADATA → re-publish MetaData for uid       (§4.4 — now implemented here)
+    │  PERIOD   → if periodRequest.period_ms != 0, update global separation
     ▼
 SelectionTable
 ```
 
-`ADD` on an already-enabled uid is a **rate update**, not an error, and not a
-duplicate-enable. That is what makes the channel tolerable to drive from a
-refcounting client.
+`ADD` on an already-enabled uid is a no-op at the table level (it is already
+selected), not an error, and not a duplicate-enable. `PERIOD` is global — it
+applies to all selected uids, not to the one named in ADD.
 
 **`METADATA` finally has an owner.** The IDL has carried
 `Command_t::METADATA` — "re-publish `MetaData` for `uid`" — since before this
@@ -541,6 +542,11 @@ component existed, and under DD-024 the selector had no metadata path, so the
 command was dead: nothing could service it. Now that metadata crosses the
 boundary here, this is the only component that *can* service it, and it does so by
 re-reading its own reader cache and rewriting one instance (§4.4).
+
+**`PERIOD` is the rate-control channel.** A nonzero `periodRequest.period_ms`
+overrides the selector's global minimum separation loaded from YAML at startup.
+This is the runtime control path for the web UI's "update rate" slider — one
+command changes the cadence for all selected tags, not per-tag.
 
 **And under [DD-029](../../docs/design-decisions.md#dd-029) it is the *primary*
 bootstrap path, not a fallback.** An earlier draft called it secondary, on the

@@ -64,8 +64,8 @@ scada_web InterestManager ──ValueRequest(RELIABLE + KEEP_ALL)──▶ scada
 
 | # | Component | Work | Status |
 |---|---|---|---|
-| 2.1 | **ValueRequest writer** | Back-channel DDS writer in `gateway.py` to send ADD/DELETE/METADATA to scada-selector with `RELIABLE` + `KEEP_ALL`. | Not started |
-| 2.2 | **Interest refcounting** | Aggregate per-client uid interest; send ADD on 0→1, DELETE on 1→0, and resend ADD for active uids when the global minimum separation changes. | Not started |
+| 2.1 | **ValueRequest writer** | Back-channel DDS writer in `gateway.py` to send ADD/DELETE/METADATA/PERIOD union commands to scada-selector with `RELIABLE` + `KEEP_ALL`. | Not started |
+| 2.2 | **Interest refcounting** | Aggregate per-client uid interest; send ADD on 0→1, DELETE on 1→0, and send PERIOD command when the global minimum separation changes. | Not started |
 | 2.3 | **Per-client demux** | Do not forward a selected sample to a client that did not request its uid. | Not started |
 | 2.4 | **Catalogue bootstrap** | Pick the `METADATA` all-sentinel value, request the catalogue, retry missing replies, and define UI readiness. | Not started |
 | 2.5 | **Selector restart reconciliation** | Detect selector restart/liveliness loss and resend the active interest set. | Not started |

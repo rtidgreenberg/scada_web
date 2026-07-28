@@ -75,7 +75,7 @@ a stated invalidation condition is a belief, and beliefs are what rot.
 | [DD-024](#dd-024) | Selection and presentation are separate roles; metadata lookup belongs to presentation | ACCEPTED | supersedes DD-021 |
 | [DD-025](#dd-025) | Enable/disable ids over the in-band DDS topic, not Routing Service remote administration | ACCEPTED | — |
 | [DD-026](#dd-026) | scada-selector uses compiled types — which rules out a Routing Service Processor | ACCEPTED | OQ-23 (Role 1) |
-| [DD-027](#dd-027) | scada-selector downrates per id; scada-web relays ids **and rate** | ACCEPTED | — |
+| [DD-027](#dd-027) | scada-selector downrates per id; scada-web relays ids, selector handles **rate** via PERIOD command | ACCEPTED | — |
 | [DD-045](#dd-045) | `mapping.py` applies WIS-compatible DynamicData→JSON transforms automatically | SUPERSEDED by DD-052/DD-053 | OQ-50, OQ-54, OQ-58 |
 | [DD-052](#dd-052) | scada-web uses Python generated types, not DynamicData | ACCEPTED | — |
 | [DD-053](#dd-053) | Field mapping is Python code, not config | ACCEPTED | — |
@@ -718,9 +718,10 @@ key-based selection.**
 **Decision.** The deliverable is four components: **scada-sim** (exists, Python,
 Level 0/1), **scada-selector** (new, Level 2), **scada-web** (the gateway), and a
 **browser interface**. scada-selector subscribes to a `ValueRequest` command topic
-carrying `ADD`/`DELETE`/`METADATA` for a `uid`, maintains the set of enabled
-uids, and republishes only those onto an output topic. scada-web holds exactly one
-reader and one writer against it, regardless of client count.
+carrying `ADD`/`DELETE`/`METADATA`/`PERIOD` as a discriminated union, maintains the
+set of enabled uids and a global minimum separation, and republishes only those
+onto an output topic. scada-web holds exactly one reader and one writer against it,
+regardless of client count.
 
 **Context.** Direction from the project owner. The alternative — which the TRD
 implicitly assumed — was per-client content-filtered readers inside scada-web.
@@ -864,24 +865,23 @@ shape. Then DD-009 is reinstated as written.
 **Decision.** The `ValueRequest` topic uses `RELIABLE` reliability with
 `KEEP_ALL` history on both writer and reader. Not `KEEP_LAST`.
 
-**Context.** `ValueRequest` has no `@key` in
-[dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl), so every command lands on a single
-instance. Under `KEEP_LAST depth=1` — the QoS the sim uses for its other
-topics — a writer may replace an unacknowledged sample with a newer one.
+**Context.** `ValueRequest` is a discriminated union switched on `Command_t`
+([dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl)), with no `@key`, so every command
+lands on a single instance. Under `KEEP_LAST depth=1` — the QoS the sim uses for
+its other topics — a writer may replace an unacknowledged sample with a newer one.
 `RELIABLE` guarantees the *latest* sample is delivered, not that every sample is.
 So a burst of `ADD(1) ADD(2) ADD(3)` can silently lose the first two.
 
 This is a command stream, where every message carries distinct intent and none is
 superseded by the next. It needs `KEEP_ALL`.
 
-**Alternatives.** (a) Add `@key uid` to `ValueRequest`, making each uid its own
-instance so `KEEP_LAST depth=1` retains one command per uid. Genuinely tempting
-and arguably the better data model — but the keyed semantics are subtly wrong,
-because `ADD(5)` followed quickly by `DELETE(5)` would have the DELETE replace
-the ADD on the same instance, which happens to be the right outcome here but only
-by luck. Changing the IDL also touches the sim. Worth considering if the IDL is
-open to revision. (b) Batching commands into one sample — a sequence of requests
-rather than one per sample. Reduces exposure but does not remove it.
+**Alternatives.** (a) Key the union by discriminator or uid — a `@key`-ed
+approach so `KEEP_LAST depth=1` retains one command per uid. Genuinely tempting
+but the semantics are subtly wrong for a union: `ADD(5)` followed quickly by
+`DELETE(5)` would have the DELETE replace the ADD on the same instance, which
+happens to be the right outcome but only by luck. (b) Batching commands into one
+sample — a sequence of requests rather than one per sample. Reduces exposure but
+does not remove it.
 
 **Verified against Connext 7.7.0 documentation.** Under `KEEP_LAST`, when an
 instance already holds `depth` samples the DataWriter replaces the oldest
@@ -1170,28 +1170,26 @@ traffic belongs upstream of the presentation tier.
 
 **Consequences.**
 
-*The IDL gained a minimum-separation field* — **applied 2026-07-27.** `ValueRequest` now carries
-`unsigned long period_ms` alongside `uid`, `name`, `command`:
+*The IDL was redesigned as a discriminated union* — **applied 2026-07-28.** `ValueRequest`
+is now a `Command_t`-discriminated union carrying case-specific payloads:
 
 ```idl
-struct ValueRequest {
-    UniqueId_t     uid;
-    Name_t         name;
-    Command_t      command;
-    unsigned long  period_ms;   // 0 = selector YAML default; ADD only
+union ValueRequest switch (Command_t) {
+case ADD:
+    AddRequest_t     addRequest;   // {uid, name}
+case DELETE:
+case METADATA:
+    UniqueId_t       uid;
+case PERIOD:
+    PeriodRequest_t  periodRequest; // {period_ms}
 };
 ```
 
-Integer milliseconds rather than float Hz, so there is no rounding ambiguity about
-the requested minimum separation. The selector loads
-`selection.default_min_separation_ms` from YAML at startup. `period_ms` applies to
-`ADD`: `0` uses that selector default, and a nonzero value overrides the global
-runtime setting. `period_ms` is ignored for `DELETE` and `METADATA`; when the
-global separation changes, scada-web re-sends `ADD` for active uids so the
-selector converges. Both derivations were regenerated and verified to agree — `rtiddsgen` produces
-`uint32_t period_ms`, and [sim/plc_types.py](../sim/plc_types.py) was updated to
-match (it hand-transcribes the IDL, exactly the drift risk
-[OQ-20](questions.md#oq-20) describes).
+The `PERIOD` case sets the selector's global minimum separation: `0` means use
+the selector YAML default, nonzero overrides the runtime setting. `ADD` enables
+forwarding for a uid; `DELETE` and `METADATA` operate on an existing uid. Integer
+milliseconds rather than float Hz, so there is no rounding ambiguity. The selector
+loads `selection.default_min_separation_ms` from YAML at startup.
 
 *This was the minimal change, not the fuller redesign.*
 [OQ-17](questions.md#oq-17) and [OQ-24](questions.md#oq-24) recommend going
