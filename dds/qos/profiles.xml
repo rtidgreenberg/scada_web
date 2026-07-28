@@ -33,6 +33,7 @@
         </reliability>
         <durability>
           <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+          <writer_depth>1</writer_depth>
         </durability>
         <history>
           <kind>KEEP_LAST_HISTORY_QOS</kind>
@@ -43,18 +44,19 @@
 
     <!-- IdValue: periodic value stream.
          Published every scan cycle; no history needed.
-         RELIABLE + VOLATILE + KEEP_LAST(1). -->
+         RELIABLE + TRANSIENT_LOCAL + KEEP_LAST(10). -->
     <qos_profile name="idvalue">
       <datawriter_qos>
         <reliability>
           <kind>RELIABLE_RELIABILITY_QOS</kind>
         </reliability>
         <durability>
-          <kind>VOLATILE_DURABILITY_QOS</kind>
+          <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+          <writer_depth>1</writer_depth>
         </durability>
         <history>
           <kind>KEEP_LAST_HISTORY_QOS</kind>
-          <depth>1</depth>
+          <depth>10</depth>
         </history>
       </datawriter_qos>
     </qos_profile>

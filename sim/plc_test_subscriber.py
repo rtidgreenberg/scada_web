@@ -31,6 +31,7 @@ ID_VALUE_TOPIC = "PLC::IdValueTopic"
 
 RATE_LIMIT_S = 5.0
 POLL_PERIOD_S = 0.1
+RATE_REPORT_PERIOD_S = 4.0
 
 
 def _id_value_reader_qos(participant: dds.DomainParticipant) -> dds.DataReaderQos:
@@ -62,11 +63,16 @@ def run(domain_id: int) -> None:
 
     last_printed: dict = {}
 
+    sample_count = 0
+    last_rate_report = time.monotonic()
+
     try:
         while True:
             for sample, info in id_value_reader.take():
                 if not info.valid:
                     continue
+
+                sample_count += 1
 
                 uid = sample["uid"]
                 now = time.monotonic()
@@ -81,6 +87,14 @@ def run(domain_id: int) -> None:
                     f"  uid={uid:<4} {name:<20} raw={raw:.2f} smoothed={smoothed:.2f} "
                     f"valueTime={sample['valueTime']}"
                 )
+
+            now = time.monotonic()
+            elapsed = now - last_rate_report
+            if elapsed >= RATE_REPORT_PERIOD_S:
+                rate = sample_count / elapsed
+                print(f"[rate] {rate:.1f} samples/s (avg over last {elapsed:.1f}s)")
+                sample_count = 0
+                last_rate_report = now
 
             time.sleep(POLL_PERIOD_S)
     except KeyboardInterrupt:
