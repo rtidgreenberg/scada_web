@@ -9,6 +9,10 @@
 types:
   xml: dds/idl/PlcValue.xml
 
+# --- QoS profiles ---
+# Shared profiles for sim (writers) and web (readers).
+qos_profiles: dds/qos/profiles.xml
+
 # --- DDS participants ---
 # Each participant joins a domain and discovers endpoints on it.
 participants:
@@ -21,6 +25,7 @@ topics:
   - name: "PLC::MetaData"
     participant: plc_domain
     type: "PLC::MetaData"
+    qos_profile: "web::metadata"
     # MetaData is TRANSIENT_LOCAL — we'll receive all tags even as a late joiner.
     #
     # NOTE (DD-028): this subscription is on the HARD REAL-TIME side, which the
@@ -42,6 +47,7 @@ topics:
   - name: "PLC::IdValue"
     participant: plc_domain
     type: "PLC::IdValue"
+    qos_profile: "web::idvalue"
     # Periodic value stream. No filter — the selector (when built) will
     # pre-filter; for the PoC we receive everything.
 

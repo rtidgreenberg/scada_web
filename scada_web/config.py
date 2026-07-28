@@ -78,6 +78,7 @@ class ServerConfig:
 class ScadaWebConfig:
     """Root configuration for scada_web."""
     types_xml: str = ""  # path to XML type library (rtiddsgen -convertToXml output)
+    qos_profiles: str = ""  # path to QoS profiles XML (dds/qos/profiles.xml)
     participants: list[ParticipantConfig] = field(default_factory=list)
     topics: list[TopicConfig] = field(default_factory=list)
     views: list[ViewConfig] = field(default_factory=list)
@@ -137,6 +138,9 @@ def load_config(path: str | Path) -> ScadaWebConfig:
     # Types
     types_section = raw.get("types", {})
     cfg.types_xml = types_section.get("xml", "")
+
+    # QoS profiles
+    cfg.qos_profiles = raw.get("qos_profiles", "")
 
     # Topics
     for t in raw.get("topics", []):

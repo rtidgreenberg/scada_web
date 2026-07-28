@@ -72,7 +72,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-25](#oq-25) | Per-client read semantics on a shared reader — keep WIS polling at all? | DECIDED | HIGH | DG | FR-REST-003, read path |
 | [OQ-14](#oq-14) | Where does alarm limit evaluation and state live? | DECIDED | HIGH | DG | Browser + filter scope |
 | [OQ-13](#oq-13) | Is name-based tag lookup required, or is `uid` enough? | DECIDED | MEDIUM | DG | `ValueRequest` handling |
-| [OQ-16](#oq-16) | What stack for the browser interface? | OPEN | MEDIUM | — | Browser work, step 5 |
+| [OQ-16](#oq-16) | What stack for the browser interface? | DEFERRED | MEDIUM | — | Browser work, step 5 |
 | [OQ-17](#oq-17) | Should `ValueRequest` be keyed on `uid`? | DECIDED | MEDIUM | DG | IDL revision window |
 | [OQ-20](#oq-20) | Single source of truth for types across components? | ANSWERED | — | — | → [DD-026](design-decisions.md#dd-026) |
 | [OQ-21](#oq-21) | Are trends and a historian in scope? | DECIDED | MEDIUM | DG | Browser scope |
@@ -95,6 +95,23 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-40](#oq-40) | Gateway testability: module globals + deprecated FastAPI events | DECIDED | MEDIUM | DG | Test isolation |
 | [OQ-41](#oq-41) | Programmatic types (sim) vs XML types (gateway) — interop validated? | DECIDED | MEDIUM | DG | End-to-end correctness |
 | [OQ-42](#oq-42) | Test strategy: what tests does the PoC need? | DECIDED | MEDIUM | DG | Regression visibility |
+| [OQ-43](#oq-43) | What concrete value is the `METADATA` sentinel uid? | DEFERRED — phase 0 uses preset range (DD-039) | MEDIUM | DG | Catalogue bootstrap, IDL contract |
+| [OQ-44](#oq-44) | What happens if `key_value()` is called on a purged instance handle? | OPEN | MEDIUM | DG | Lifecycle forwarding correctness |
+| [OQ-45](#oq-45) | Selector graceful-shutdown contract: dispose own instances? | OPEN | MEDIUM | DG | Downstream disconnect detection |
+| [OQ-46](#oq-46) | `SelectedValue` topic type registration name — must match `IdValue`? | OPEN | MEDIUM | DG | Discovery, scada-web reader setup |
+| [OQ-47](#oq-47) | Selector liveness detection from scada-web | OPEN | LOW | DG | Distinguishing "no updates" from "selector gone" |
+| [OQ-48](#oq-48) | `METADATA` on-demand re-read uses `any_sample_state()`, not `new_data()`? | OPEN | MEDIUM | DG | METADATA command returning empty |
+| [OQ-49](#oq-49) | Throttle on `METADATA(ALL)` requests to prevent catalogue spam? | OPEN | LOW | DG | Selector CPU under misbehaving client |
+| [OQ-50](#oq-50) | `mapping.py` module referenced in `__init__.py` but never created | DECIDED → [DD-045](design-decisions.md#dd-045) | HIGH | DG | View projection dead code path |
+| [OQ-51](#oq-51) | Gateway `_read_loop` fires `on_sample` callback synchronously in async context | OPEN | HIGH | DG | Event-loop starvation under load |
+| [OQ-52](#oq-52) | No QoS set on gateway readers — defaults mismatch publisher QoS | DECIDED → [DD-046](design-decisions.md#dd-046) | HIGH | DG | MetaData never arrives (RELIABLE vs default) |
+| [OQ-53](#oq-53) | Config YAML `type:` key vs dataclass `type_name` field naming inconsistency | OPEN | MEDIUM | DG | Confusing; shadows Python builtin |
+| [OQ-54](#oq-54) | `_sample_to_dict` uses `data.to_json()` but DynamicData may not support it | DECIDED → [DD-045](design-decisions.md#dd-045) | MEDIUM | DG | Runtime crash on first sample |
+| [OQ-55](#oq-55) | No input validation on WebSocket `subscribe` messages (uid type, array size) | OPEN | MEDIUM | DG | Crash or DoS from malformed client |
+| [OQ-56](#oq-56) | `types_xml` path is relative but no base-dir resolution documented | OPEN | MEDIUM | DG | Startup fails depending on cwd |
+| [OQ-57](#oq-57) | `requirements.txt` omits `rti.connextdds` — installability unclear | OPEN | MEDIUM | DG | Cannot `pip install -r` in clean env |
+| [OQ-58](#oq-58) | View config is parsed and stored but never consumed (no mapping engine) | DECIDED → [DD-045](design-decisions.md#dd-045) | MEDIUM | DG | Declared architecture not wired |
+| [OQ-59](#oq-59) | `_on_dds_sample` iterates `_ws_clients` with `list()` copy but races with `_handle_ws_message` | OPEN | LOW | DG | Theoretically safe in single-thread asyncio but brittle |
 | [OQ-18](#oq-18) | Should `ValueRequest` carry a `LIFESPAN`? | OPEN | LOW | — | Nothing; cheap later |
 | [OQ-22](#oq-22) | Enforce Purdue zones with DDS Security, or logically only? | OPEN — now structurally reachable via [DD-028](design-decisions.md#dd-028) | LOW | — | Deployment claims |
 | [OQ-4](#oq-4) | Is cross-topic join in the PoC? | ANSWERED | — | — | → DD-021 |
@@ -655,9 +672,11 @@ dynamic selection is likely to cost more than the ~200 lines it replaces.
 ### OQ-16
 **What stack for the browser interface?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** —
+- **Status:** DEFERRED · **Priority:** MEDIUM · **Owner:** —
 - **Blocks:** Browser work (build step 5)
-- **Raised:** 2026-07-27
+- **Raised:** 2026-07-27 · **Deferred:** 2026-07-27
+- **Trigger to reopen:** browser build step begins, or a framework dependency
+  is forced by another component choice.
 
 **Context.** The browser interface is one of the four named deliverables and its
 stack is currently just "TBD" in
@@ -1688,6 +1707,456 @@ without DDS. The gateway and server need either mocking or a live DDS domain.
 Add the smoke test when the gateway is runnable end-to-end. Integration test
 when the mapping engine lands (it's the thesis — if it's not tested, it's not
 proven).
+
+---
+
+### OQ-43
+**What concrete value is the `METADATA` sentinel uid ("give me everything")?**
+
+- **Status:** DEFERRED · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Catalogue bootstrap, IDL contract
+- **Raised:** 2026-07-27 (scada-select architecture review)
+- **Deferred:** 2026-07-27 — Phase 0 uses a fixed preset uid range (DD-039);
+  all tags are known a priori, so no "give me everything" command is needed.
+  Revisit when dynamic tag discovery or multi-client catalogue bootstrap is
+  implemented.
+
+**Context.** §4.4 of scada-select-architecture says `Command_t::METADATA` needs a
+sentinel `uid` meaning "all" so scada-web can bootstrap the catalogue before it
+knows any real uids. The doc says the value (`-1` or `0`) should be chosen "when
+implemented" and written into system-architecture §4.1, but there is no OQ
+tracking the decision.
+
+**Risks.** `-1` as a signed `int32_t` overlaps potential uid space if negative ids
+are ever used. `0` overlaps if uid generation starts at zero. Either needs a
+stated invariant in the IDL (e.g., `const UniqueId_t METADATA_ALL_SENTINEL = -1;`)
+and a corresponding reservation in the sim's id allocator.
+
+**Options.**
+- (a) `const UniqueId_t METADATA_ALL_SENTINEL = -1;` in the IDL, reserve negative
+  range for control.
+- (b) New `Command_t` enum value (`METADATA_ALL`) so the uid field is simply
+  ignored for that command.
+- (c) `uid = 0` by convention, sim starts allocating at 1 (DD-039 already puts
+  the range at 100–500 so this is safe today).
+
+---
+
+### OQ-44
+**What happens if `key_value()` is called on a purged instance handle?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Lifecycle forwarding correctness
+- **Raised:** 2026-07-27 (scada-select architecture review)
+
+**Context.** §3.4 and §4.3 recover the uid from an invalid sample via
+`reader.key_value(key_holder, info.instance_handle())`. If the reader's resource
+limits cause the instance to be purged between `take()` returning the sample info
+and `key_value()` being called, the call can throw or return stale data. The
+architecture describes no fallback.
+
+**Options.**
+- (a) Guard with a try/catch; on failure log and skip — acceptable because
+  lifecycle on a purged instance means the tag was already gone long enough to
+  exceed cache limits.
+- (b) Set `max_instances` high enough that purging never happens in practice, and
+  assert.
+- (c) Maintain a `handle → uid` map in the selection table, updated on every
+  valid sample. Adds state but removes the dependency on `key_value()`.
+
+---
+
+### OQ-45
+**Selector graceful-shutdown contract: dispose own instances?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Downstream disconnect detection on best-effort link
+- **Raised:** 2026-07-27 (scada-select architecture review)
+
+**Context.** The architecture says "dispatch() loop until SIGINT/SIGTERM" and
+"the signal handler only has to stop the dispatch loop." On a `BEST_EFFORT` link,
+scada-web has no ACK-based mechanism to detect that the selector went away. If the
+selector simply exits:
+- The writer's participant is deleted, which unregisters all instances after
+  `writer_data_lifecycle.autodispose_unregistered_instances` (default: true).
+- But the downstream reader is best-effort, so these lifecycle notifications
+  can be lost in transit.
+
+Should the selector explicitly dispose all registered instances (or at least write
+a "going away" heartbeat) before stopping the dispatch loop?
+
+**Options.**
+- (a) Rely on autodispose + participant liveliness lease expiry (default 100s) —
+  scada-web sees `not_alive_no_writers` when the lease expires. Slow but free.
+- (b) Explicit dispose loop on shutdown — fast notification but still lossy on
+  best-effort. Write each dispose 2–3 times (they're rare and small, per §3.4's
+  existing mitigation).
+- (c) Separate `RELIABLE` heartbeat/status topic from selector to scada-web,
+  analogous to OQ-30's feedback channel. Overkill for the PoC.
+
+---
+
+### OQ-46
+**`SelectedValue` topic reuses the `IdValue` type — what type name is registered?**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Discovery between selector writer and scada-web reader
+- **Raised:** 2026-07-27 (scada-select architecture review)
+
+**Context.** The architecture says "the type on each output topic is the type on
+its input topic" — `IdValue` in, `IdValue` out — but the topic *name* changes
+(`PLC::IdValue` → `PLC::SelectedValue`). DDS registers a type name per topic. If
+the selector registers type `PLC::IdValue` under topic `PLC::SelectedValue`, and
+scada-web's `DynamicData` reader discovers the topic by name, the registered type
+name must match or discovery silently fails.
+
+In practice with a single XML types file this should be fine — both sides register
+the same type name. But the architecture never states this explicitly, and a
+mismatch is a silent failure (no error, no samples, just nothing matched).
+
+**Options.**
+- (a) State explicitly: type is registered as `PLC::IdValue` on both `PLC::IdValue`
+  and `PLC::SelectedValue` topics. Document in system-architecture §4.
+- (b) Use `register_type()` with an alias so the type name matches the topic name.
+  Non-standard and confusing.
+- (c) Rely on XTypes type-matching (type name is metadata, not part of matching).
+  Connext 7.7 with TypeObject v2 may match purely on structure.
+
+---
+
+### OQ-47
+**Selector liveness detection from scada-web**
+
+- **Status:** OPEN · **Priority:** LOW · **Owner:** DG
+- **Blocks:** Distinguishing "no updates" from "selector gone"
+- **Raised:** 2026-07-27 (scada-select architecture review)
+
+**Context.** If the selector process dies, scada-web cannot distinguish "no tags
+are updating" from "the selector is gone" until staleness timeouts fire on all
+tags simultaneously. This is different from OQ-30 (ACK on commands) — this is
+about detecting that the entire upstream is absent.
+
+**Options.**
+- (a) Participant liveliness — scada-web monitors `on_liveliness_changed()` on its
+  matched readers. When the selector's participant lease expires, all matched
+  writers report `not alive`. Built into DDS, no extra topics.
+- (b) Periodic synthetic sample on `SelectedValue` (heartbeat tag). Cheap but
+  pollutes the data namespace.
+- (c) Dedicated `RELIABLE` status topic. Same as OQ-30(c)/OQ-45(c). Overkill for
+  PoC.
+- (d) Accept the staleness-timeout approach — if all tags go stale
+  simultaneously, infer selector failure. No extra mechanism, but detection is
+  slow (N × expected period).
+
+---
+
+### OQ-48
+**`METADATA` on-demand re-read: must use `any_sample_state()`, not `new_data()`**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** METADATA command potentially returning empty results
+- **Raised:** 2026-07-27 (scada-select architecture review)
+
+**Context.** §4.4 says the metadata plane uses `read()` with
+`new_data()`/`NOT_READ` state to forward each sample exactly once on arrival while
+keeping it in the cache. But when a `METADATA` command arrives requesting
+re-publish of a specific uid (or the sentinel "all"), that sample is already in
+`READ` state — it won't match a `new_data()` selector.
+
+The architecture mentions "re-read that instance" for the command path but shows
+no code distinguishing the two call sites. If the command handler reuses the same
+select call, it returns nothing for already-read samples.
+
+**Options.**
+- (a) Two distinct select calls: arrival path uses `new_data()`, command path uses
+  `any_sample_state()` + instance selection. Straightforward.
+- (b) Single code path that always uses `any_sample_state()` and tracks forwarded
+  state in application logic. Adds state but simplifies the reader calls.
+
+---
+
+### OQ-49
+**Throttle on `METADATA(ALL)` requests to prevent catalogue spam**
+
+- **Status:** OPEN · **Priority:** LOW · **Owner:** DG
+- **Blocks:** Selector CPU under misbehaving client
+- **Raised:** 2026-07-27 (scada-select architecture review)
+
+**Context.** A malformed scada-web (or a bug in retry logic) could spam
+`METADATA(uid=ALL)` and force the selector to repeatedly serialize and write the
+entire catalogue on every request. The architecture defines no bound on how often
+this command is serviced.
+
+With a typical tag count of a few hundred, each full-catalogue write is small
+(~100 bytes × N tags), but the `RELIABLE` + `KEEP_ALL` request channel guarantees
+every request is delivered, so a tight retry loop creates sustained work.
+
+**Options.**
+- (a) Rate-limit `METADATA(ALL)` in the control plane: at most once per N ms
+  (e.g., 1000 ms). Subsequent requests within the window are coalesced.
+- (b) No throttle — accept that a single misbehaving client can load the selector.
+  The PoC has one client and no adversarial model.
+- (c) Count and log, but don't throttle. Observability without enforcement.
+
+---
+
+### OQ-50
+**`mapping.py` module referenced in `__init__.py` but never created**
+
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** View projection dead code path
+- **Raised:** 2026-07-27 (scada-web code review)
+- **Decision:** 2026-07-27 — [DD-045](design-decisions.md#dd-045). Option (a): implement
+  `mapping.py` with WIS-compatible auto-transforms (union projection via
+  `to_json()`, `char[N]` array→string). Also resolves OQ-54 and OQ-58.
+
+**Context.** `scada_web/__init__.py` lists `mapping` as a core module ("wire
+DynamicData → slim view JSON (union projection, rename, flatten)") and
+`config.py` defines `ViewConfig` / `MappingFieldConfig` with a `transform` field,
+but no `mapping.py` file exists. The server's `_sample_to_dict` does a raw
+`to_json()` dump instead of projecting through the declared view.
+
+**Impact.** The entire mapping layer — union projection, char-array→string
+conversion, field renaming — is designed but unimplemented. Web clients receive
+raw DDS wire JSON, not the slim view schema promised by the architecture.
+
+**Options.**
+- (a) Implement `mapping.py` with the transform logic (union_scalar,
+  char_array_string) before the PoC demo.
+- (b) Accept raw JSON for the PoC; treat views as documentation of the eventual
+  schema.
+
+---
+
+### OQ-51
+**Gateway `_read_loop` fires `on_sample` callback synchronously in async context**
+
+- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** Event-loop starvation under load
+- **Raised:** 2026-07-27 (scada-web code review)
+
+**Context.** `DdsGateway._read_loop` is an `async def` that does
+`await asyncio.sleep(0.05)` between polls, but the `self.on_sample(...)` call is
+synchronous. If `on_sample` triggers `asyncio.create_task(_ws_send(...))` for
+many clients × many samples, the tasks are *created* but the loop doesn't yield
+until the next `await`. Under high sample rates (500 tags, some at 2 Hz = 200
+samples/tick at 50 ms), the synchronous work between awaits may dominate.
+
+Additionally, `reader.take()` is a blocking DDS call — if it blocks (unlikely
+with VOLATILE but possible with RELIABLE), the entire event loop stalls.
+
+**Options.**
+- (a) Move the DDS read to a thread executor:
+  `samples = await loop.run_in_executor(None, reader.take)` — keeps the event
+  loop responsive.
+- (b) Accept the current design for the PoC (single client, moderate load).
+- (c) Use a WaitSet-based approach with `asyncio` file-descriptor wakeup
+  (requires Connext status condition → fd bridge).
+
+---
+
+### OQ-52
+**No QoS set on gateway readers — defaults mismatch publisher QoS**
+
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
+- **Blocks:** MetaData never arrives (RELIABLE vs default)
+- **Raised:** 2026-07-27 (scada-web code review)
+- **Decision:** 2026-07-27 — [DD-046](design-decisions.md#dd-046). Option (b): shared QoS
+  profiles XML at `dds/qos/profiles.xml`, referenced from config.yaml per topic.
+  Also refactored sim to use the same profiles.
+
+**Context.** `gateway.py._create_readers()` creates `DataReader` with default QoS
+(no explicit QoS argument). The sim's `plc_publisher.py` publishes MetaData with
+`RELIABLE` + `TRANSIENT_LOCAL` and IdValue with `RELIABLE` + `VOLATILE`.
+
+Default DataReader QoS in Connext is `BEST_EFFORT` + `VOLATILE`. The DDS
+specification requires reliability to be compatible for a match:
+- `RELIABLE` writer → `BEST_EFFORT` reader: **matches** (reader accepts what it
+  gets; no ACKs).
+- `TRANSIENT_LOCAL` writer → `VOLATILE` reader: **matches** but the reader
+  receives **no historical data** — it only gets samples published after matching.
+
+So IdValue will flow, but the MetaData catalogue (published once at startup) will
+**never arrive** at a late-joining scada-web unless the reader also requests
+`TRANSIENT_LOCAL` + `RELIABLE`.
+
+This is the same issue as the already-decided OQ-37 — the fix simply hasn't been
+applied to the code yet.
+
+**Options.**
+- (a) Add explicit QoS to gateway readers: MetaData gets
+  `RELIABLE`/`TRANSIENT_LOCAL`/`KEEP_LAST(1)`; IdValue gets
+  `BEST_EFFORT`/`VOLATILE`/`KEEP_LAST(1)` (or match RELIABLE).
+- (b) Use a QoS profile XML file referenced from config.yaml and load via
+  QosProvider.
+
+---
+
+### OQ-53
+**Config YAML `type:` key vs dataclass `type_name` field naming inconsistency**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Confusing; shadows Python builtin
+- **Raised:** 2026-07-27 (scada-web code review)
+
+**Context.** The YAML uses `type: "PLC::MetaData"` but the dataclass field is
+`type_name: str`. The loader bridges them:
+`type_name=t.get("type", "")`. Using `type` as a YAML key is fine, but the
+mismatch makes grep-based navigation harder and `type` shadows Python's builtin
+(irrelevant in YAML, but a minor hazard in config tests).
+
+**Options.**
+- (a) Rename the YAML key to `type_name` — consistent, greppable.
+- (b) Leave as-is — the YAML reads more naturally as `type: "PLC::MetaData"`.
+
+---
+
+### OQ-54
+**`_sample_to_dict` uses `data.to_json()` but DynamicData may not support it**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Runtime crash on first sample
+- **Raised:** 2026-07-27 (scada-web code review)
+
+**Context.** `server.py._sample_to_dict` calls `json.loads(data.to_json())`. The
+Connext Python API's `DynamicData` class has `to_string()` (CDR-style text) but
+`to_json()` availability depends on the Connext version. If the installed version
+lacks `to_json()`, every received sample will hit the except branch and return
+`{"raw": str(data)}` — functional but undocumented.
+
+Separately, even if `to_json()` exists, its output format for unions (esp.
+`Value_t`) may not match the slim view schema the browser expects.
+
+**Options.**
+- (a) Verify `to_json()` exists on the installed Connext (7.7.0) and document the
+  output shape.
+- (b) Replace with explicit field extraction using `get_*` methods — predictable
+  output regardless of Connext version.
+- (c) Treat this as blocked on OQ-50 (mapping engine) — once mapping.py exists,
+  `_sample_to_dict` is replaced.
+
+---
+
+### OQ-55
+**No input validation on WebSocket `subscribe` messages (uid type, array size)**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Crash or DoS from malformed client
+- **Raised:** 2026-07-27 (scada-web code review)
+
+**Context.** `_handle_ws_message` does `int(uid)` on each element of
+`msg.get("uids", [])` without:
+- Checking that `uids` is actually a list
+- Bounding the list size (a client could subscribe to millions of uids)
+- Handling non-integer values (would raise `TypeError`/`ValueError` uncaught)
+
+The uncaught exception would propagate up to `websocket_endpoint`'s generic
+`except Exception` and log it but silently disconnect the client without
+cleaning up partial subscriptions from that same message.
+
+**Options.**
+- (a) Add validation: `uids` must be a list, max length (e.g., 10000), each
+  element must be int-coercible. Reject with an error frame on failure.
+- (b) Wrap each uid conversion in try/except and skip bad ones silently.
+- (c) Accept for PoC — single trusted client.
+
+---
+
+### OQ-56
+**`types_xml` path is relative but no base-dir resolution documented**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Startup fails depending on cwd
+- **Raised:** 2026-07-27 (scada-web code review)
+
+**Context.** `config.yaml` declares `types.xml: dds/idl/PlcValue.xml`. The
+gateway passes this string directly to `dds.QosProvider(xml_path)`. If the process
+is started from a directory other than the repo root (e.g., `python -m scada_web`
+from inside `scada_web/`), the relative path resolves wrong and startup crashes.
+
+The `__main__.py` doesn't `os.chdir` or resolve the path relative to the config
+file's location.
+
+**Options.**
+- (a) Resolve `types_xml` relative to the config file's parent directory in
+  `load_config()`.
+- (b) Document that the process must be started from the repo root.
+- (c) Make `types_xml` an absolute path in config.yaml.
+
+---
+
+### OQ-57
+**`requirements.txt` omits `rti.connextdds` — installability unclear**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Cannot `pip install -r` in clean environment
+- **Raised:** 2026-07-27 (scada-web code review)
+
+**Context.** `requirements.txt` lists `fastapi`, `uvicorn`, `pyyaml` but not
+`rti.connextdds`. Both `gateway.py` and `sim/plc_publisher.py` import it. The
+Connext Python API is not on PyPI (it's installed via RTI's own mechanism or a
+local wheel), so it can't simply be added to requirements.txt — but the omission
+means a new developer gets an unexplained `ModuleNotFoundError` after
+`pip install -r requirements.txt`.
+
+**Options.**
+- (a) Add a commented-out entry: `# rti.connextdds — installed from RTI bundle,
+  not PyPI. See README.md.` and document the install path in README.
+- (b) Create a `pyproject.toml` with an optional `[dds]` extra that references a
+  local wheel path.
+- (c) Leave as-is; the README already covers it (does it?).
+
+---
+
+### OQ-58
+**View config is parsed and stored but never consumed (no mapping engine)**
+
+- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** Declared architecture not wired
+- **Raised:** 2026-07-27 (scada-web code review)
+
+**Context.** `load_config` dutifully parses the `views:` section into
+`ViewConfig` objects with `MappingFieldConfig` entries (including `transform:`
+values like `union_scalar`). These are stored in `ScadaWebConfig.views` but
+never read by `server.py`, `gateway.py`, or `interest.py`. The gateway doesn't
+pass view config to any mapping layer, and the server's `_on_dds_sample` ignores
+views entirely.
+
+This is the same gap as OQ-50 viewed from the config side — the plumbing exists
+but the consumer doesn't.
+
+**Options.**
+- (a) Wire views into the sample path: `_on_dds_sample` looks up the view for
+  the topic and projects through it before sending to clients.
+- (b) Remove view config until mapping.py is implemented (reduces false
+  confidence that the feature works).
+- (c) Leave as documentation of intent.
+
+---
+
+### OQ-59
+**`_on_dds_sample` iterates `_ws_clients` with `list()` copy but races with `_handle_ws_message`**
+
+- **Status:** OPEN · **Priority:** LOW · **Owner:** DG
+- **Blocks:** Theoretically safe in single-thread asyncio but brittle
+- **Raised:** 2026-07-27 (scada-web code review)
+
+**Context.** `_on_dds_sample` is called from the gateway's `_read_loop` (an async
+task). It does `for client_id, ws in list(_ws_clients.items()):` — the `list()`
+snapshot is safe because asyncio is single-threaded and the callback runs between
+awaits. However, this relies on `_on_dds_sample` never being called from a thread
+(which would be the case if OQ-51 option (a) is adopted — moving DDS reads to an
+executor). If that happens, `_ws_clients` mutation from the main thread and
+iteration from the executor thread would race.
+
+This is not a bug today but becomes one the moment the read path is
+threaded.
+
+**Options.**
+- (a) Document the single-thread invariant.
+- (b) Use `asyncio.Queue` as the hand-off between the read loop and the dispatch
+  loop — the dispatch always runs in the event loop thread.
+- (c) Address when/if OQ-51 is resolved with threading.
 
 ---
 

@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from .config import ScadaWebConfig
 from .gateway import DdsGateway
 from .interest import InterestManager
+from .mapping import sample_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -169,10 +170,8 @@ def _on_interest_delete(uid: int) -> None:
 
 
 def _sample_to_dict(data: Any) -> dict[str, Any]:
-    """Convert a DynamicData sample to a plain dict (basic serialization)."""
-    # DynamicData supports to_string(); for now use a simple approach.
-    # The mapping engine (mapping.py) will replace this with view projection.
+    """Convert a DynamicData sample to WIS-compatible JSON dict."""
     try:
-        return json.loads(data.to_json())
+        return sample_to_dict(data)
     except Exception:
         return {"raw": str(data)}

@@ -1809,3 +1809,80 @@ away from the selector, contradicting DD-028's invariant.
 **Revisit if.** DDS Security Governance is deployed per-domain with different
 policies for field and web — then the domain split is load-bearing for security,
 not just isolation, and should be documented under OQ-22 as well.
+
+---
+
+### DD-045
+**`mapping.py` applies WIS-compatible DynamicData→JSON transforms automatically.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-50](questions.md#oq-50), [OQ-54](questions.md#oq-54), [OQ-58](questions.md#oq-58) · **Affects:** scada-web read path, browser binding
+
+**Decision.** `scada_web/mapping.py` uses `DynamicData.to_json()` (which already
+projects unions to the active branch only) then recursively converts `char[N]`
+arrays from single-char lists to NUL-trimmed strings. This matches RTI Web
+Integration Service output without explicit per-field configuration.
+
+**Context.** `to_json()` was untested (OQ-54) and the architecture declared a
+mapping module that didn't exist (OQ-50). The `ViewConfig` schema is parsed but
+not consumed (OQ-58) — the WIS-style auto-transform covers the PoC need without
+requiring per-field config. `ViewConfig` remains available for future field
+renaming/flattening beyond what WIS does.
+
+**Alternatives.** (a) Raw `to_json()` with no transform — rejected: `char[32]`
+arrives as `["R","U","N","","",...]` which is unusable by a browser binding.
+(b) Full config-driven mapping with explicit transform declarations per field —
+overkill for the PoC; the only two transforms needed (`union_scalar` and
+`char_array_string`) are already handled automatically by `to_json()` + the
+recursive char-array fixer.
+
+**Consequences.** The mapping module is ~55 LOC with no configuration required.
+Browser clients receive clean JSON matching WIS format. The `ViewConfig`
+infrastructure remains unused for now but is not dead — it's the extension point
+for field renaming and explicit projection when needed.
+
+**Revisit if.** Clients need field renaming, flattening, or selective projection
+beyond what the automatic transform provides — at which point `ViewConfig.fields`
+becomes the driver and OQ-6 (expression language) may reopen.
+
+---
+
+### DD-046
+**Shared QoS profiles XML at `dds/qos/profiles.xml`; both sim and gateway use it.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-52](questions.md#oq-52) (implements [OQ-37](questions.md#oq-37)) · **Affects:** gateway.py, plc_publisher.py, config.yaml
+
+**Decision.** A single QoS profiles XML (`dds/qos/profiles.xml`) defines two
+libraries: `sim::` (writer QoS for the field side) and `web::` (reader QoS for
+the presentation side). Each topic in `config.yaml` specifies a `qos_profile:`
+reference (e.g. `web::metadata`). The gateway loads profiles via `QosProvider`
+and applies them at reader creation. The sim uses the same file for writer QoS.
+
+**Profiles:**
+
+| Library::Profile | Entity | Reliability | Durability | History |
+|---|---|---|---|---|
+| `sim::metadata` | DataWriter | RELIABLE | TRANSIENT_LOCAL | KEEP_LAST(1) |
+| `sim::idvalue` | DataWriter | RELIABLE | VOLATILE | KEEP_LAST(1) |
+| `web::metadata` | DataReader | RELIABLE | TRANSIENT_LOCAL | KEEP_LAST(1) |
+| `web::idvalue` | DataReader | BEST_EFFORT | VOLATILE | KEEP_LAST(1) |
+| `web::value_request` | DataWriter | RELIABLE | VOLATILE | KEEP_ALL |
+
+**Context.** OQ-37 decided the MetaData reader needs RELIABLE + TRANSIENT_LOCAL;
+OQ-52 noted the code never applied it. Rather than hardcoding QoS in Python (the
+pattern already proven fragile — sim and gateway drifted), a shared XML file
+makes the contract between writers and readers explicit and inspectable. Both
+components load from the same file so they cannot diverge.
+
+**Alternatives.**
+- (a) Per-topic hardcoded QoS in Python — rejected: already the failure mode that
+  caused this bug. The sim set RELIABLE + TRANSIENT_LOCAL; the gateway used
+  defaults. A shared file is the standard RTI pattern for preventing this.
+
+**Consequences.** One new file (`dds/qos/profiles.xml`). Both `plc_publisher.py`
+and `gateway.py` load it via `QosProvider`. Config.yaml gains a `qos_profiles:`
+top-level key and per-topic `qos_profile:` references. No QoS is hardcoded in
+Python.
+
+**Revisit if.** A DDS Security Governance file or DomainParticipant QoS profiles
+are needed — at which point this file may be merged into a larger XML
+configuration or loaded via `NDDS_QOS_PROFILES` env var.

@@ -47,28 +47,22 @@ from plc_types import build_plc_types, set_value_t
 METADATA_TOPIC = "PLC::MetaData"
 ID_VALUE_TOPIC = "PLC::IdValue"
 
+QOS_PROFILES_XML = str(Path(__file__).resolve().parent.parent / "dds" / "qos" / "profiles.xml")
+
 
 def _now_ms() -> int:
     """valueTime convention used by this sim: milliseconds since Unix epoch."""
     return int(time.time() * 1000)
 
 
-def _metadata_writer_qos(participant: dds.DomainParticipant) -> dds.DataWriterQos:
-    qos = participant.default_datawriter_qos
-    qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-    qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-    qos.history.kind = dds.HistoryKind.KEEP_LAST
-    qos.history.depth = 1
-    return qos
+def _metadata_writer_qos() -> dds.DataWriterQos:
+    provider = dds.QosProvider(QOS_PROFILES_XML)
+    return provider.datawriter_qos_from_profile("sim::metadata")
 
 
-def _id_value_writer_qos(participant: dds.DomainParticipant) -> dds.DataWriterQos:
-    qos = participant.default_datawriter_qos
-    qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-    qos.durability.kind = dds.DurabilityKind.VOLATILE
-    qos.history.kind = dds.HistoryKind.KEEP_LAST
-    qos.history.depth = 1
-    return qos
+def _id_value_writer_qos() -> dds.DataWriterQos:
+    provider = dds.QosProvider(QOS_PROFILES_XML)
+    return provider.datawriter_qos_from_profile("sim::idvalue")
 
 
 def _write_metadata(
@@ -124,10 +118,10 @@ def run(domain_id: int, verbose: bool) -> None:
     id_value_topic = dds.DynamicData.Topic(participant, ID_VALUE_TOPIC, types.id_value)
 
     metadata_writer = dds.DynamicData.DataWriter(
-        publisher, metadata_topic, _metadata_writer_qos(participant)
+        publisher, metadata_topic, _metadata_writer_qos()
     )
     id_value_writer = dds.DynamicData.DataWriter(
-        publisher, id_value_topic, _id_value_writer_qos(participant)
+        publisher, id_value_topic, _id_value_writer_qos()
     )
 
     print(
