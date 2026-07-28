@@ -79,10 +79,17 @@
           <kind>KEEP_LAST_HISTORY_QOS</kind>
           <depth>1</depth>
         </history>
+        <!-- DD-042: bounded resource limits give burst headroom without letting
+             a stalled selector block the sim's writer indefinitely. Cache
+             overflow becomes a logged sample_lost_status count, not silent. -->
+        <resource_limits>
+          <max_samples_per_instance>8</max_samples_per_instance>
+        </resource_limits>
       </datareader_qos>
     </qos_profile>
 
   </qos_library>
+
 
   <!-- presentation:: - presentation domain streams -->
   <qos_library name="presentation">
@@ -94,6 +101,13 @@
       <datawriter_qos>
         <reliability>
           <kind>RELIABLE_RELIABILITY_QOS</kind>
+          <!-- DD-028: a timeout is a logged drop, never a retry inside the
+               dispatch callback, so a stalled scada_web reader cannot
+               block the selector's field-side reception. -->
+          <max_blocking_time>
+            <sec>0</sec>
+            <nanosec>100000000</nanosec>
+          </max_blocking_time>
         </reliability>
         <durability>
           <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
@@ -125,6 +139,10 @@
       <datawriter_qos>
         <reliability>
           <kind>RELIABLE_RELIABILITY_QOS</kind>
+          <max_blocking_time>
+            <sec>0</sec>
+            <nanosec>100000000</nanosec>
+          </max_blocking_time>
         </reliability>
         <durability>
           <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>

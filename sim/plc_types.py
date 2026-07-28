@@ -32,7 +32,7 @@ PRESENTATION_DOMAIN_ID = 16
 
 def _build_value_kind_t() -> dds.EnumType:
     return dds.EnumType(
-        "ValueKind_t",
+        "PLC::ValueKind_t",
         [
             dds.EnumMember("KIND_STRING", 0),
             dds.EnumMember("KIND_INT32", 1),
@@ -46,7 +46,7 @@ def _build_value_kind_t() -> dds.EnumType:
 def _build_value_t(value_kind_t: dds.EnumType) -> dds.UnionType:
     string_value_array = dds.ArrayType(dds.CharType(), MAX_STRING_VALUE_LENGTH)
     return dds.UnionType(
-        "Value_t",
+        "PLC::Value_t",
         value_kind_t,
         [
             dds.UnionMember("stringValue", string_value_array, 0),  # KIND_STRING
@@ -60,7 +60,7 @@ def _build_value_t(value_kind_t: dds.EnumType) -> dds.UnionType:
 
 def _build_limits_t(value_t: dds.UnionType) -> dds.StructType:
     return dds.StructType(
-        "Limits_t",
+        "PLC::Limits_t",
         [
             dds.Member("redHigh", value_t),
             dds.Member("redLow", value_t),
@@ -75,7 +75,7 @@ def _build_limits_t(value_t: dds.UnionType) -> dds.StructType:
 
 def _build_metadata(limits_t: dds.StructType) -> dds.StructType:
     return dds.StructType(
-        "MetaData",
+        "PLC::MetaData",
         [
             dds.Member("uid", dds.Int32Type(), is_key=True),
             dds.Member("valueTime", dds.Int64Type()),
@@ -88,7 +88,7 @@ def _build_metadata(limits_t: dds.StructType) -> dds.StructType:
 
 def _build_id_value(value_t: dds.UnionType) -> dds.StructType:
     return dds.StructType(
-        "IdValue",
+        "PLC::IdValue",
         [
             dds.Member("uid", dds.Int32Type(), is_key=True),
             dds.Member("valueTime", dds.Int64Type()),
@@ -100,7 +100,7 @@ def _build_id_value(value_t: dds.UnionType) -> dds.StructType:
 
 def _build_command_t() -> dds.EnumType:
     return dds.EnumType(
-        "Command_t",
+        "PLC::Command_t",
         [
             dds.EnumMember("ADD", 0),
             dds.EnumMember("DELETE", 1),
@@ -112,7 +112,7 @@ def _build_command_t() -> dds.EnumType:
 
 def _build_add_request_t() -> dds.StructType:
     return dds.StructType(
-        "AddRequest_t",
+        "PLC::AddRequest_t",
         [
             dds.Member("uid", dds.Int32Type()),
             dds.Member("name", dds.StringType(MAX_NAME_LENGTH)),
@@ -122,7 +122,7 @@ def _build_add_request_t() -> dds.StructType:
 
 def _build_period_request_t() -> dds.StructType:
     return dds.StructType(
-        "PeriodRequest_t",
+        "PLC::PeriodRequest_t",
         [
             dds.Member("period_ms", dds.Uint32Type()),
         ],
@@ -135,7 +135,7 @@ def _build_value_request(
     period_request_t: dds.StructType,
 ) -> dds.UnionType:
     return dds.UnionType(
-        "ValueRequest",
+        "PLC::ValueRequest",
         command_t,
         [
             dds.UnionMember("addRequest", add_request_t, labels=[0]),       # ADD

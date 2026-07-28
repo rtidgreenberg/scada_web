@@ -65,6 +65,8 @@
     <member name="smoothedValue" type="nonBasic"  nonBasicTypeName= "PLC::Value_t"/>
     <member name="rawValue" type="nonBasic"  nonBasicTypeName= "PLC::Value_t"/>
   </struct>
+  <const name="SelectedValueTopic" type="string" value="&quot;PLC::SelectedValueTopic&quot;"/>
+  <const name="SelectedMetaDataTopic" type="string" value="&quot;PLC::SelectedMetaDataTopic&quot;"/>
   <enum name="Command_t">
     <enumerator name="ADD"/>
     <enumerator name="DELETE"/>

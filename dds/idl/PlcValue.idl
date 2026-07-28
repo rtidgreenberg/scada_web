@@ -67,7 +67,14 @@ module PLC {
 		Value_t           smoothedValue;
 		Value_t           rawValue;
 	};
-	
+
+	// scada-selector output topics (DD-020, DD-028, DD-029). Same types as
+	// their field-side counterparts -- IdValue in, IdValue out; MetaData in,
+	// MetaData out -- on different topic names so a single-domain deployment
+	// does not collide (scada-select-architecture.md §3.8).
+	const string SelectedValueTopic = "PLC::SelectedValueTopic";
+	const string SelectedMetaDataTopic = "PLC::SelectedMetaDataTopic";
+
 	enum Command_t {
 		ADD,
 		DELETE,

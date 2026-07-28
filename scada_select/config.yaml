@@ -14,10 +14,16 @@ selection:
   # The PERIOD command overrides this at runtime when period_ms is nonzero.
   # Set to 0 to forward every selected field sample by default.
   default_min_separation_ms: 250
+  # Phase 1 PoC uid range pre-enabled at startup (DD-039). No catalogue
+  # bootstrap or dynamic ADD is required for the range to be forwarded;
+  # ValueRequest ADD/DELETE can still narrow or widen it at runtime.
+  uid_range_low: 100
+  uid_range_high: 500
 
 topics:
-  idvalue: "PLC::IdValue"
-  metadata: "PLC::MetaData"
-  selected_value: "PLC::SelectedValue"
-  selected_metadata: "PLC::SelectedMetaData"
-  value_request: "PLC::ValueRequest"
+  idvalue: "PLC::IdValueTopic"
+  metadata: "PLC::MetaDataTopic"
+  selected_value: "PLC::SelectedValueTopic"
+  selected_metadata: "PLC::SelectedMetaDataTopic"
+  value_request: "PLC::ValueRequestTopic"
+

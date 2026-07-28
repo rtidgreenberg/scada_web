@@ -20,42 +20,87 @@ qos_profiles: dds/qos/profiles.xml
 selection:
   default_min_separation_ms: 250
 
+# --- RTI Web Integration Service compatibility ---
+# scada_web serves the WIS REST/WebSocket URIs so UI/index.html — written
+# against WIS 7.7 — runs unchanged. These names appear in the resource URIs and
+# must match what the browser is configured with; they mirror wis-config.xml.
+#
+#   /dds/rest1/applications/ScadaWebApp/domain_participants/Plant
+#       /subscribers/IdValueSubscriber/data_readers/IdValueReader
+#
+# strict_websocket_connections: false accepts a socket whose connection name was
+# never POSTed to /dds/v1/websocket_connections. WIS requires the reservation;
+# set true to match it exactly.
+wis:
+  enabled: true
+  application: ScadaWebApp
+  strict_websocket_connections: false
+  document_root: UI          # serve the browser UI, like WIS -documentRoot
+  allow_origins: ["*"]       # WIS defaults -accessControlAllowOrigin to '*'
+
 # --- DDS participants ---
 # Domain IDs are defined in dds/idl/PlcValue.idl (PLC::FIELD_DOMAIN_ID = 15,
-# PLC::PRESENTATION_DOMAIN_ID = 16). This gateway reads from the presentation domain.
+# PLC::PRESENTATION_DOMAIN_ID = 16).
+#
+# NOTE (DD-028): this is the FIELD domain, which the boundary decision says
+# scada_web must not touch. It reads the field domain only because the selector
+# does not exist yet and this is what WIS does today — it is the direct
+# replacement path. When scada_select lands, this becomes domain 16 with the
+# selected topics below.
+#
+# wis_name is the participant name carried in WIS URIs ("Plant" in
+# wis-config.xml), which is independent of this config's participant key.
 participants:
   plc_domain:
-    domain: 16  # PLC::PRESENTATION_DOMAIN_ID
+    domain: 15  # PLC::FIELD_DOMAIN_ID — must match the sim's --domain-id
+    wis_name: Plant
 
 # --- Topic subscriptions ---
-# Topic name defaults to type name if type: is omitted.
+# Topic name defaults to type name if type: is omitted. Names here are the DDS
+# topic names the sim publishes (PLC::MetaDataTopic / PLC::IdValueTopic per
+# dds/idl/PlcValue.idl), NOT the type names.
 topics:
-  - name: "PLC::MetaData"
+  - name: "PLC::MetaDataTopic"
     participant: plc_domain
     type: "PLC::MetaData"
     qos_profile: "field::metadata"
+    wis:
+      subscriber: MetaDataSubscriber
+      data_reader: MetaDataReader
     # MetaData is TRANSIENT_LOCAL — we'll receive all tags even as a late joiner.
     #
-    # NOTE (DD-028): this subscription is on the HARD REAL-TIME side, which the
-    # boundary decision says scada_web must not touch. It stays as-is only because
-    # the selector does not exist yet and this keeps the PoC working. When the
-    # selector lands, this becomes:
-    #     - name: "PLC::SelectedMetaData"
+    # NOTE (DD-028): when the selector lands this becomes:
+    #     - name: "PLC::SelectedMetaDataTopic"
     #       participant: web_domain
     # and scada_web loses its field-side participant entirely. Same for
-    # PLC::IdValue → PLC::SelectedValue below.
+    # PLC::IdValueTopic → PLC::SelectedValueTopic below.
     #
     # NOTE: metadata streams are TRANSIENT_LOCAL on both field and presentation
     # domains, so late-joining readers receive the latest catalogue sample per uid.
     # Values need no equivalent — they are periodic, so a late joiner waits at
     # most one publish period.
 
-  - name: "PLC::IdValue"
+  - name: "PLC::IdValueTopic"
     participant: plc_domain
     type: "PLC::IdValue"
     qos_profile: "field::idvalue"
+    wis:
+      subscriber: IdValueSubscriber
+      data_reader: IdValueReader
     # Periodic value stream. No filter — the selector (when built) will
     # pre-filter; for the PoC we receive everything.
+
+# --- Published topics ---
+# The back-channel the browser writes selection commands to. Nothing consumes it
+# until scada_select exists; writing is still accepted, exactly as with WIS.
+writers:
+  - name: "PLC::ValueRequestTopic"
+    participant: plc_domain
+    type: "PLC::ValueRequest"
+    qos_profile: "presentation::value_request"
+    wis:
+      publisher: ControlPublisher
+      data_writer: ValueRequestWriter
 
 # --- Historical view mappings ---
 # DD-052/DD-053 supersede config-driven mapping for the typed SCADA gateway.
@@ -63,7 +108,7 @@ topics:
 # legacy PoC input until config.py stops accepting it.
 views:
   - name: tag_value
-    topic: "PLC::IdValue"
+    topic: "PLC::IdValueTopic"
     fields:
       - wire: uid
         view: uid
@@ -77,7 +122,7 @@ views:
         transform: union_scalar
 
   - name: tag_metadata
-    topic: "PLC::MetaData"
+    topic: "PLC::MetaDataTopic"
     fields:
       - wire: uid
         view: uid

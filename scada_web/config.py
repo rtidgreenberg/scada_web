@@ -30,6 +30,7 @@ class ParticipantConfig:
     name: str
     domain: int
     qos_xml: str | None = None  # optional QoS provider XML path
+    wis_name: str | None = None  # name this participant carries in WIS URIs
 
 
 @dataclass
@@ -40,6 +41,20 @@ class FilterConfig:
 
 
 @dataclass
+class WisReaderConfig:
+    """WIS URI names for a subscribed topic's reader resource."""
+    subscriber: str
+    data_reader: str
+
+
+@dataclass
+class WisWriterConfig:
+    """WIS URI names for a published topic's writer resource."""
+    publisher: str
+    data_writer: str
+
+
+@dataclass
 class TopicConfig:
     """A topic to subscribe to. Type is loaded from the XML library."""
     name: str
@@ -47,6 +62,17 @@ class TopicConfig:
     type_name: str = ""  # fully-qualified type in XML, e.g. "PLC::MetaData"
     qos_profile: str | None = None
     filter: FilterConfig | None = None
+    wis: WisReaderConfig | None = None
+
+
+@dataclass
+class WriterConfig:
+    """A topic to publish. Backs a WIS data_writer resource."""
+    name: str
+    participant: str  # references a ParticipantConfig.name
+    type_name: str = ""
+    qos_profile: str | None = None
+    wis: WisWriterConfig | None = None
 
 
 @dataclass
@@ -81,14 +107,36 @@ class SelectionConfig:
 
 
 @dataclass
+class WisConfig:
+    """RTI Web Integration Service compatibility surface.
+
+    `application` is the name that appears in WIS resource URIs
+    (/dds/rest1/applications/{application}/...) and must match what the browser
+    client is configured with.
+
+    `strict_websocket_connections` mirrors WIS's requirement that a connection
+    name be reserved via POST /dds/v1/websocket_connections before the socket
+    opens. Left False, an unreserved name is accepted, which avoids a confusing
+    failure when the browser's POST is blocked; set True for WIS-strict behavior.
+    """
+    enabled: bool = True
+    application: str = ""
+    strict_websocket_connections: bool = False
+    document_root: str | None = None  # static dir to serve, like WIS -documentRoot
+    allow_origins: list[str] = field(default_factory=lambda: ["*"])
+
+
+@dataclass
 class ScadaWebConfig:
     """Root configuration for scada_web."""
     types_xml: str = ""  # path to XML type library (rtiddsgen -convertToXml output)
     qos_profiles: str = ""  # path to QoS profiles XML (dds/qos/profiles.xml)
     participants: list[ParticipantConfig] = field(default_factory=list)
     topics: list[TopicConfig] = field(default_factory=list)
+    writers: list[WriterConfig] = field(default_factory=list)
     views: list[ViewConfig] = field(default_factory=list)
     selection: SelectionConfig = field(default_factory=SelectionConfig)
+    wis: WisConfig = field(default_factory=WisConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
 
     # --- convenience lookups ---
@@ -104,6 +152,12 @@ class ScadaWebConfig:
             if t.name == name:
                 return t
         raise KeyError(f"no topic named '{name}'")
+
+    def writer_by_name(self, name: str) -> WriterConfig:
+        for w in self.writers:
+            if w.name == name:
+                return w
+        raise KeyError(f"no writer named '{name}'")
 
 
 # ─── Loader ──────────────────────────────────────────────────────────────────
@@ -126,6 +180,30 @@ def _parse_mapping_field(raw: dict[str, Any]) -> MappingFieldConfig:
     )
 
 
+def _parse_wis_reader(raw: dict[str, Any] | None,
+                      topic: str) -> WisReaderConfig | None:
+    if raw is None:
+        return None
+    missing = [k for k in ("subscriber", "data_reader") if not raw.get(k)]
+    if missing:
+        raise ValueError(
+            f"topic '{topic}' wis: block requires {', '.join(missing)}")
+    return WisReaderConfig(subscriber=raw["subscriber"],
+                           data_reader=raw["data_reader"])
+
+
+def _parse_wis_writer(raw: dict[str, Any] | None,
+                      writer: str) -> WisWriterConfig | None:
+    if raw is None:
+        return None
+    missing = [k for k in ("publisher", "data_writer") if not raw.get(k)]
+    if missing:
+        raise ValueError(
+            f"writer '{writer}' wis: block requires {', '.join(missing)}")
+    return WisWriterConfig(publisher=raw["publisher"],
+                           data_writer=raw["data_writer"])
+
+
 def load_config(path: str | Path) -> ScadaWebConfig:
     """Load and validate a scada_web YAML config file."""
     path = Path(path)
@@ -140,6 +218,7 @@ def load_config(path: str | Path) -> ScadaWebConfig:
             name=name,
             domain=int(p["domain"]),
             qos_xml=p.get("qos_xml"),
+            wis_name=p.get("wis_name"),
         ))
 
     # Types
@@ -157,6 +236,17 @@ def load_config(path: str | Path) -> ScadaWebConfig:
             type_name=t.get("type", t["name"]),
             qos_profile=t.get("qos_profile"),
             filter=_parse_filter(t.get("filter")),
+            wis=_parse_wis_reader(t.get("wis"), t["name"]),
+        ))
+
+    # Writers
+    for w in raw.get("writers", []):
+        cfg.writers.append(WriterConfig(
+            name=w["name"],
+            participant=w["participant"],
+            type_name=w.get("type", w["name"]),
+            qos_profile=w.get("qos_profile"),
+            wis=_parse_wis_writer(w.get("wis"), w["name"]),
         ))
 
     # Views
@@ -175,6 +265,18 @@ def load_config(path: str | Path) -> ScadaWebConfig:
             selection.get("default_min_separation_ms", 250)
         ),
     )
+
+    # WIS compatibility surface
+    if "wis" in raw:
+        w = raw["wis"] or {}
+        cfg.wis = WisConfig(
+            enabled=bool(w.get("enabled", True)),
+            application=w.get("application", ""),
+            strict_websocket_connections=bool(
+                w.get("strict_websocket_connections", False)),
+            document_root=w.get("document_root"),
+            allow_origins=list(w.get("allow_origins", ["*"])),
+        )
 
     # Server
     if "server" in raw:
@@ -210,3 +312,33 @@ def _validate(cfg: ScadaWebConfig) -> None:
         if v.topic not in topic_names:
             raise ValueError(
                 f"view '{v.name}' references unknown topic '{v.topic}'")
+
+    if cfg.writers and not cfg.qos_profiles:
+        raise ValueError("config must specify qos_profiles when writers are declared")
+    seen_writers: set[str] = set()
+    for w in cfg.writers:
+        if w.name in seen_writers:
+            raise ValueError(f"duplicate writer '{w.name}'")
+        seen_writers.add(w.name)
+        if w.participant not in participant_names:
+            raise ValueError(
+                f"writer '{w.name}' references unknown participant "
+                f"'{w.participant}'")
+        if not w.qos_profile:
+            raise ValueError(f"writer '{w.name}' must specify qos_profile")
+
+    # WIS: any entity exposing a wis: block needs a named application and a
+    # participant wis_name, or its URI cannot be built.
+    if cfg.wis.enabled:
+        exposed = [t for t in cfg.topics if t.wis] + [
+            w for w in cfg.writers if w.wis]
+        if exposed and not cfg.wis.application:
+            raise ValueError(
+                "wis.application is required when topics or writers declare "
+                "a wis: block")
+        for entity in exposed:
+            pc = cfg.participant_by_name(entity.participant)
+            if not pc.wis_name:
+                raise ValueError(
+                    f"'{entity.name}' declares a wis: block but participant "
+                    f"'{entity.participant}' has no wis_name")

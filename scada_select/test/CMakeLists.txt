@@ -1,0 +1,4 @@
+add_executable(test_selection_table test_selection_table.cxx)
+target_link_libraries(test_selection_table PRIVATE selection_table)
+
+add_test(NAME SelectionTable COMMAND test_selection_table)
