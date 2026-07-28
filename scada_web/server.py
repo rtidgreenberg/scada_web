@@ -235,8 +235,14 @@ def _parse_global_min_separation(msg: dict[str, Any]) -> int | None:
         if len(item_periods) > 1:
             raise ValueError("minimum separation is global; values must agree")
         period_ms = item_periods.pop()
-    if period_ms < 0:
-        raise ValueError("period_ms/min_separation_ms must be >= 0")
+    # Must be > 0, not >= 0. On the ValueRequest contract, PERIOD with
+    # period_ms == 0 means "restore the selector's configured default" -- it is
+    # not a request for the full field rate, and the UI has no way to ask for
+    # that (dds/idl/PlcValue.idl, scada-select-architecture.md §3.3). Rejecting
+    # 0 here keeps a browser from sending a command whose effect would not be
+    # what the sender meant.
+    if period_ms <= 0:
+        raise ValueError("period_ms/min_separation_ms must be > 0")
     return period_ms
 
 

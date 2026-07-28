@@ -48,8 +48,11 @@ class InterestManager:
         on_delete: DeleteCallback | None = None,
         min_separation_ms: int = 250,
     ):
-        if min_separation_ms < 0:
-            raise ValueError("min_separation_ms must be >= 0")
+        if min_separation_ms <= 0:
+            # 0 is not "no rate limit": the selector reads PERIOD 0 as "restore
+            # your configured default" (dds/idl/PlcValue.idl). Web clients
+            # cannot request the full field rate, so 0 never leaves here.
+            raise ValueError("min_separation_ms must be > 0")
         self._on_add = on_add
         self._on_delete = on_delete
         self._min_separation_ms = min_separation_ms
@@ -70,8 +73,11 @@ class InterestManager:
 
     def set_min_separation(self, min_separation_ms: int) -> None:
         """Update the global selector minimum separation for all active uids."""
-        if min_separation_ms < 0:
-            raise ValueError("min_separation_ms must be >= 0")
+        if min_separation_ms <= 0:
+            # 0 is not "no rate limit": the selector reads PERIOD 0 as "restore
+            # your configured default" (dds/idl/PlcValue.idl). Web clients
+            # cannot request the full field rate, so 0 never leaves here.
+            raise ValueError("min_separation_ms must be > 0")
         if min_separation_ms == self._min_separation_ms:
             return
         self._min_separation_ms = min_separation_ms
