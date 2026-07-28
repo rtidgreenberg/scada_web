@@ -97,7 +97,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-42](#oq-42) | Test strategy: what tests does the PoC need? | DECIDED | MEDIUM | DG | Regression visibility |
 | [OQ-43](#oq-43) | What concrete value is the `METADATA` sentinel uid? | DEFERRED — phase 0 uses preset range (DD-039) | MEDIUM | DG | Catalogue bootstrap, IDL contract |
 | [OQ-44](#oq-44) | What happens if `key_value()` is called on a purged instance handle? | DECIDED → [DD-048](design-decisions.md#dd-048) | MEDIUM | DG | Lifecycle forwarding correctness |
-| [OQ-45](#oq-45) | Selector graceful-shutdown contract: dispose own instances? | DECIDED → [DD-049](design-decisions.md#dd-049) | MEDIUM | DG | Downstream disconnect detection |
+| [OQ-45](#oq-45) | Selector graceful-shutdown contract: dispose own instances? | OPEN — DD-049 withdrawn (never implemented) | LOW | DG | Downstream disconnect detection |
 | [OQ-46](#oq-46) | `SelectedValue` topic type registration name — must match `IdValue`? | DECIDED → [DD-050](design-decisions.md#dd-050) | MEDIUM | DG | Discovery, scada-web reader setup |
 | [OQ-47](#oq-47) | Selector liveness detection from scada-web | OPEN | LOW | DG | Distinguishing "no updates" from "selector gone" |
 | [OQ-48](#oq-48) | `METADATA` on-demand re-read uses `any_sample_state()`, not `new_data()`? | DECIDED → [DD-051](design-decisions.md#dd-051) | MEDIUM | DG | METADATA command returning empty |
@@ -1773,33 +1773,40 @@ architecture describes no fallback.
 ### OQ-45
 **Selector graceful-shutdown contract: dispose own instances?**
 
-- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
-- **Blocks:** Downstream disconnect detection on best-effort link
+- **Status:** OPEN · **Priority:** LOW · **Owner:** DG
+- **Blocks:** Downstream disconnect detection
 - **Raised:** 2026-07-27 (scada-select architecture review)
-- **Decision:** 2026-07-27 — [DD-049](design-decisions.md#dd-049). Option (a): rely on
-  autodispose + participant liveliness lease expiry. Reduce lease to 5s in QoS
-  profile. No explicit dispose loop or shutdown code.
+- **Reopened:** 2026-07-28 — DD-049 chose option (a) and lowered the participant
+  liveliness lease to 5s, but that was never implemented: `dds/qos/profiles.xml`
+  sets no liveliness, and the selector builds both participants with default QoS
+  rather than from a profile, so nothing would have picked it up. DD-049 was
+  withdrawn rather than left as a decision the code contradicts. Detection is on
+  the default lease, and the question is open again — deliberately, since the PoC
+  has one client and no requirement on detection latency.
 
 **Context.** The architecture says "dispatch() loop until SIGINT/SIGTERM" and
-"the signal handler only has to stop the dispatch loop." On a `BEST_EFFORT` link,
-scada-web has no ACK-based mechanism to detect that the selector went away. If the
-selector simply exits:
-- The writer's participant is deleted, which unregisters all instances after
-  `writer_data_lifecycle.autodispose_unregistered_instances` (default: true).
-- But the downstream reader is best-effort, so these lifecycle notifications
-  can be lost in transit.
+"the signal handler only has to stop the dispatch loop." If the selector simply
+exits, the writer's participant is deleted, which unregisters all instances subject
+to `writer_data_lifecycle.autodispose_unregistered_instances` (default: true).
+Under [DD-029](design-decisions.md#dd-029) the presentation side is `RELIABLE`, so
+those notifications are delivered to a matched reader rather than lost in transit —
+which removes the original urgency here. What liveliness still buys is the cases
+where the selector gets no chance to write anything at all: process kill, host
+loss, network partition.
 
 Should the selector explicitly dispose all registered instances (or at least write
 a "going away" heartbeat) before stopping the dispatch loop?
 
 **Options.**
 - (a) Rely on autodispose + participant liveliness lease expiry (default 100s) —
-  scada-web sees `not_alive_no_writers` when the lease expires. Slow but free.
-- (b) Explicit dispose loop on shutdown — fast notification but still lossy on
-  best-effort. Write each dispose 2–3 times (they're rare and small, per §3.4's
-  existing mitigation).
+  scada-web sees `not_alive_no_writers` when the lease expires. Free, and covers
+  abnormal exits. Shortening the lease needs a `participant_qos` profile *and* the
+  selector actually loading it, which is the part DD-049 missed.
+- (b) Explicit dispose loop on shutdown — now reliably delivered, so a single write
+  suffices, but it covers only clean exits and adds shutdown ordering.
 - (c) Separate `RELIABLE` heartbeat/status topic from selector to scada-web,
-  analogous to OQ-30's feedback channel. Overkill for the PoC.
+  analogous to OQ-30's feedback channel. Overkill for the PoC, but the only option
+  that distinguishes "exited cleanly" from "vanished".
 
 ---
 

@@ -1234,14 +1234,16 @@ soft-real-time presentation side; `MetaData` is forwarded through it.**
 
 - **Status:** ACCEPTED, QoS amended by [DD-029](#dd-029) · **Date:** 2026-07-27 · **Amends:** [DD-024](#dd-024) (transport path only) · **Affects:** DD-020, DD-023, DD-027, OQ-13, OQ-22, OQ-26, SR-003, system-architecture §2, §4.3, §4.4, §7, scada-web `config.yaml`
 
-> **QoS amended by [DD-029](#dd-029).** The web side is `BEST_EFFORT`, so two
-> claims below are superseded: the forwarded catalogue is **not**
-> `TRANSIENT_LOCAL` and the selector is **not** a durability re-origin —
-> `TRANSIENT_LOCAL` requires `RELIABLE` on both ends, so the catalogue is served
-> on request instead. The `KEEP_LAST`-never-`KEEP_ALL` rule still holds but is no
-> longer what carries the invariant: a `BEST_EFFORT` writer cannot block on a slow
-> consumer at all. **The boundary itself, and every structural claim about it, is
-> unchanged** — DD-029 only makes it cheaper to enforce.
+> **QoS confirmed by [DD-029](#dd-029), after a reversal.** DD-029 was briefly
+> written as "the web side is `BEST_EFFORT`", which would have superseded two
+> claims below — the forwarded catalogue being `TRANSIENT_LOCAL`, and the selector
+> being a durability re-origin. Its accepted form keeps the presentation side
+> `RELIABLE`, so **both claims stand as written here.** What DD-029 does add is
+> that the `KEEP_LAST`-never-`KEEP_ALL` rule below is load-bearing rather than
+> belt-and-braces, and that it needs two companions to actually hold: an
+> explicitly unlimited reliable send window, and a bounded `max_blocking_time`
+> whose timeouts are counted and dropped rather than retried. **The boundary
+> itself, and every structural claim about it, is unchanged.**
 
 **Decision.** The system has two timing zones, and scada-selector is the boundary
 between them:
@@ -1494,10 +1496,13 @@ practice rather than as compensation for a lossy transport. This does not weaken
 [scada-select-architecture](../scada_select/docs/scada-select-architecture.md)
 §3.4's rule that lifecycle events bypass the rate limit.
 
-*Loss becomes invisible at the receiver unless we look.* The selector must count
-what it wrote; scada-web cannot infer what never arrived. Whether a `BEST_EFFORT`
-reader's `SampleLostStatus` reports useful gap information here is **unverified** —
-do not design on it without checking.
+*What the selector drops, only the selector can report.* Delivery of what is
+written is now reliable, but the selector's own decisions are not visible
+downstream: rate-limited samples (DD-027) and any write that hits
+`max_blocking_time` leave no trace at the receiver. The selector therefore counts
+both, and a nonzero write-timeout count specifically means the non-blocking rules
+above have been broken. On the inbound side the equivalent counter is
+`replaced_dropped_sample_count` (see [DD-042](#dd-042)), not `SampleLostStatus`.
 
 *[OQ-25](questions.md#oq-25)'s recommendation is reinforced.* Its option A —
 latest-value reads, `KEEP_LAST depth=1`, `read()` never `take()`, change
@@ -1509,8 +1514,9 @@ removes the last reason to keep the WIS polling surface.
 presentation value stream is `RELIABLE` + `TRANSIENT_LOCAL` + `KEEP_LAST(1)`.
 This matters for values that do not update frequently.
 
-*Rate limiting is unaffected.* [DD-027](#dd-027) still does the volume reduction;
-`BEST_EFFORT` is about what happens to a sample in flight, not how many are sent.
+*Rate limiting is unaffected.* [DD-027](#dd-027) still does the volume reduction.
+Reliability governs what happens to a sample once written, not how many are
+written — a reliable stream of decimated samples is exactly the intent.
 
 **Revisit if.** (a) The catalogue bootstrap proves unreliable in practice — take
 alternative (a) above, one QoS line. (b) A web-side consumer appears that genuinely
@@ -1733,26 +1739,46 @@ the ambiguity entirely at zero cost.
 
 - **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-32](questions.md#oq-32)
 
-**Decision.** The selector's inbound `PLC::IdValue` reader stays `RELIABLE` but
-with bounded `ResourceLimits` (`max_samples_per_instance` = 4–8 at expected
-publish rate). This gives the selector burst headroom without allowing a stalled
-selector to block the sim's writer indefinitely.
+**Decision.** The selector's inbound `PLC::IdValue` reader stays `RELIABLE` with
+`KEEP_LAST(1)`, and `KEEP_LAST(1)` *is* the bound. Not keeping up is made visible
+by monitoring rather than by resource limits.
 
-**Monitoring:** poll `DataReader::sample_lost_status()` each read cycle and log
-non-zero counts. This makes cache overflow visible rather than silent (also
-addresses [OQ-33](#oq-33)).
+> **Corrected 2026-07-28 during implementation.** The original form of this entry
+> specified `max_samples_per_instance` = 4–8 for burst headroom and
+> `sample_lost_status()` for monitoring. Both were verified against Connext 7.7.0
+> and neither works as written:
+>
+> - **`max_samples_per_instance` cannot bind under `KEEP_LAST(1)`.** The history
+>   depth is already the tighter constraint, so the limit never rejects anything;
+>   it reads as protection that is not there.
+> - **`SampleLostStatus` does not count local `KEEP_LAST` replacement.** When a
+>   newer sample replaces an unread one, the new sample is *accepted* — so it is
+>   neither `SAMPLE_LOST` nor `SAMPLE_REJECTED`. The counter that does move is
+>   **`DataReaderCacheStatus.replaced_dropped_sample_count`**, which counts
+>   exactly the replacements where the discarded sample was still `NOT_READ`.
+> - **A deeper queue would be wrong here anyway.** The selector decimates on
+>   arrival and forwards the *first* eligible sample of a batch, so depth > 1 would
+>   put stale values on the display, contradicting
+>   [scada-select-architecture](../scada_select/docs/scada-select-architecture.md)
+>   §3.3's "latest sample wins". Keeping depth at 1 makes latest-wins automatic.
+
+**Monitoring:** each loop iteration, poll
+`reader.extensions().datareader_cache_status().replaced_dropped_sample_count()` and
+log increases; keep polling `sample_lost_status()` alongside it, since that still
+catches writer-side loss, which the cache counter does not see. This makes falling
+behind visible rather than silent (also addresses [OQ-33](#oq-33)).
 
 **Why not BEST_EFFORT.** Lifecycle events (dispose/unregister) must not be
 silently lost on the field side — a disposed tag must reach the selector so it
-can propagate the retraction. BEST_EFFORT would make lifecycle loss a normal
-condition on both hops rather than just the outbound hop (DD-029).
+can propagate the retraction. Under the current [DD-029](#dd-029) both hops are
+`RELIABLE`, so this reasoning now applies symmetrically rather than making the
+field hop the only protected one.
 
-**Why bounded.** Without resource limits, a RELIABLE + KEEP_LAST reader with
-depth N still holds at most N samples per instance, but the writer's send window
-can still fill if the reader is not acknowledging — blocking the sim. Bounded
-resource limits cap the total memory the reader will allocate, and once full the
-middleware drops the oldest unread sample (KEEP_LAST semantics) rather than
-applying backpressure to the writer indefinitely.
+**Why `KEEP_LAST(1)` is enough of a bound.** A `KEEP_LAST` reader replaces per
+instance instead of accumulating, so its cache cannot grow without limit and it
+does not hold samples the writer must retain on its behalf. Writer-side blocking
+is governed by the writer's own send window and resource limits, not by reader
+resource limits (see DD-029 rule 2 for the outbound direction).
 
 ---
 
@@ -1995,38 +2021,6 @@ lifecycle key recovery.
 
 **Revisit if.** The DDS API gains a guaranteed-safe `key_value()` that never
 throws on purged handles, making the map redundant.
-
----
-
-### DD-049
-**Selector shutdown relies on participant liveliness lease expiry.**
-
-- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-45](questions.md#oq-45) · **Affects:** [OQ-47](questions.md#oq-47), QoS profiles
-
-**Decision.** The selector does not explicitly dispose instances on shutdown.
-Downstream (scada-web) detects selector departure via participant liveliness:
-`on_liveliness_changed` fires when the lease expires. The QoS profile sets
-`liveliness.lease_duration` to 5 seconds (down from default 100s) so detection
-is prompt without application-level shutdown code.
-
-**Context.** The downstream link is BEST_EFFORT, so explicit dispose writes can
-be lost. Adding reliability for lifecycle only (while data remains best-effort)
-is complex and contradicts DD-029. Participant liveliness is the DDS-native
-mechanism for exactly this — it doesn't depend on sample delivery.
-
-**Alternatives.** (b) Explicit dispose loop (2–3 writes) — rejected because
-still lossy on best-effort, and adds shutdown-ordering complexity for
-uncertain benefit. (c) Dedicated RELIABLE status topic — rejected as overkill
-for a PoC with one client.
-
-**Consequences.** Selector shutdown detection takes up to 5s (one lease
-duration). The SPDP assertion period becomes ~1.67s (lease/3), adding trivial
-network overhead. No application shutdown code beyond stopping the dispatch
-loop and closing the participant.
-
-**Revisit if.** Detection latency of 5s is unacceptable for the use case, or
-multiple selectors are deployed and individual failure must be identified
-faster than lease expiry.
 
 ---
 
