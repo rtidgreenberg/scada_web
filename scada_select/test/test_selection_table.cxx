@@ -3,6 +3,7 @@
 // scada-select-architecture.md §8.
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 #include "SelectionTable.hpp"
 
@@ -53,6 +54,22 @@ void test_add_range() {
     check(!table.contains(99) && !table.contains(104), "range is exclusive of neighbors");
 }
 
+void test_add_range_at_int32_max() {
+    // An int32 loop counter overflows at high == INT32_MAX: undefined
+    // behaviour, and in practice a loop that never ends.
+    SelectionTable table(250);
+    constexpr std::int32_t max = std::numeric_limits<std::int32_t>::max();
+    table.add_range(max - 2, max);
+    check(table.size() == 3, "add_range up to INT32_MAX terminates and selects 3 uids");
+    check(table.contains(max), "INT32_MAX itself is selected");
+}
+
+void test_add_range_inverted_is_empty() {
+    SelectionTable table(250);
+    table.add_range(500, 100);
+    check(table.size() == 0, "an inverted range selects nothing (main() rejects it)");
+}
+
 void test_should_forward_unselected() {
     SelectionTable table(250);
     check(!table.should_forward(5, at_ms(0)), "unselected uid is never forwarded");
@@ -82,7 +99,9 @@ void test_should_forward_rate_limits() {
           "sample at t=500ms forwards (250ms since last emit at 250ms)");
 }
 
-void test_period_zero_forwards_every_sample() {
+void test_configured_period_zero_forwards_every_sample() {
+    // A startup default of 0 is the one way to get the full field rate, and it
+    // is local configuration -- no PERIOD command can ask for it.
     SelectionTable table(0);
     table.add(5);
 
@@ -93,14 +112,23 @@ void test_period_zero_forwards_every_sample() {
 
 void test_set_period() {
     SelectionTable table(250);
-    check(table.period_ms() == 250, "initial period is the YAML default");
+    check(table.period_ms() == 250, "initial period is the startup default");
+    check(table.default_period_ms() == 250, "startup default is retained");
 
     table.set_period(0);
     check(table.period_ms() == 250,
-          "PERIOD with period_ms=0 leaves the current separation unchanged");
+          "PERIOD with period_ms=0 on an un-overridden table stays at the default");
 
     table.set_period(1000);
     check(table.period_ms() == 1000, "PERIOD with nonzero period_ms overrides it");
+
+    table.set_period(0);
+    check(table.period_ms() == 250,
+          "PERIOD with period_ms=0 restores the startup default after an override");
+    check(table.default_period_ms() == 250,
+          "the startup default itself is never mutated by PERIOD");
+
+    table.set_period(1000);  // re-override for the decimation checks below
 
     table.add(5);
     check(table.should_forward(5, at_ms(0)), "sample at t=0 forwards (first ever)");
@@ -128,10 +156,12 @@ void test_period_is_global_across_uids() {
 int main() {
     test_add_contains_erase();
     test_add_range();
+    test_add_range_at_int32_max();
+    test_add_range_inverted_is_empty();
     test_should_forward_unselected();
     test_should_forward_first_sample_always_forwards();
     test_should_forward_rate_limits();
-    test_period_zero_forwards_every_sample();
+    test_configured_period_zero_forwards_every_sample();
     test_set_period();
     test_period_is_global_across_uids();
 

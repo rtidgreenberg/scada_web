@@ -31,9 +31,17 @@ public:
     // bootstrap request is not needed yet.
     void handle_metadata_request(std::int32_t uid);
 
+    // Outbound writes dropped after hitting the writer's max_blocking_time
+    // (§3.8). main() reports the count.
+    std::uint64_t write_timeouts() const { return write_timeouts_; }
+
 private:
+    // Write one catalogue sample, counting rather than propagating a timeout.
+    void try_write(const PLC::MetaData &sample);
+
     dds::sub::DataReader<PLC::MetaData> reader_;
     dds::pub::DataWriter<PLC::MetaData> writer_;
+    std::uint64_t write_timeouts_{0};
 };
 
 }  // namespace scada_select

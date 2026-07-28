@@ -7,14 +7,20 @@ MetaDataPlane::MetaDataPlane(dds::sub::DataReader<PLC::MetaData> reader,
     : reader_(std::move(reader)), writer_(std::move(writer)) {}
 
 void MetaDataPlane::process() {
-    // NOT_READ, ALIVE -- forward each metadata sample exactly once while
-    // leaving it in the cache (§4.4).
-    auto samples =
-        reader_.select().state(dds::sub::status::DataState::new_data()).read();
+    // NOT_READ, any instance state -- forward each metadata sample exactly once
+    // while leaving it in the cache (§4.4). Not DataState::new_data(), whose
+    // ALIVE instance-state mask would filter out the invalid samples that carry
+    // dispose and unregister, making the retraction path below unreachable.
+    const dds::sub::status::DataState unread_any_instance(
+        dds::sub::status::SampleState::not_read(),
+        dds::sub::status::ViewState::any(),
+        dds::sub::status::InstanceState::any());
+
+    auto samples = reader_.select().state(unread_any_instance).read();
 
     for (const auto &s : samples) {
         if (s.info().valid()) {
-            writer_.write(s.data());
+            try_write(s.data());
             continue;
         }
 
@@ -27,11 +33,15 @@ void MetaDataPlane::process() {
             continue;  // never forwarded -- nothing to retract
         }
 
-        if (s.info().state().instance_state() ==
-            dds::sub::status::InstanceState::not_alive_disposed()) {
-            writer_.dispose_instance(out);
-        } else {
-            writer_.unregister_instance(out);
+        try {
+            if (s.info().state().instance_state() ==
+                dds::sub::status::InstanceState::not_alive_disposed()) {
+                writer_.dispose_instance(out);
+            } else {
+                writer_.unregister_instance(out);
+            }
+        } catch (const dds::core::TimeoutError &) {
+            ++write_timeouts_;
         }
     }
 }
@@ -47,8 +57,18 @@ void MetaDataPlane::handle_metadata_request(std::int32_t uid) {
 
     for (const auto &s : reader_.select().instance(handle).read()) {
         if (s.info().valid()) {
-            writer_.write(s.data());
+            try_write(s.data());
         }
+    }
+}
+
+void MetaDataPlane::try_write(const PLC::MetaData &sample) {
+    try {
+        writer_.write(sample);
+    } catch (const dds::core::TimeoutError &) {
+        // §3.8 rule 2: log and count, never retry on the dispatch thread.
+        // scada-web can re-ask for a catalogue entry it did not get.
+        ++write_timeouts_;
     }
 }
 

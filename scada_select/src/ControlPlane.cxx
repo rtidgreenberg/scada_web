@@ -19,8 +19,9 @@ void ControlPlane::handle(const PLC::ValueRequest &request) {
             }
             break;
         case PLC::Command_t::PERIOD:
-            // period_ms == 0 means "leave the selector YAML default in
-            // place" -- SelectionTable::set_period already implements that.
+            // period_ms == 0 restores the selector's startup default --
+            // SelectionTable::set_period implements that, and deliberately
+            // does not let 0 mean "full field rate".
             table_.set_period(request.periodRequest().period_ms);
             break;
     }

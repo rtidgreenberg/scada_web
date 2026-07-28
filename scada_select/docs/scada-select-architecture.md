@@ -26,9 +26,13 @@ and [DD-026](../../docs/design-decisions.md#dd-026) /
 [DD-029](../../docs/design-decisions.md#dd-029) for the four decisions that
 determine its shape.
 
-The two sides also have different **reliability** contracts — the field side is
-`RELIABLE`, the web side is `BEST_EFFORT`, and inbound `ValueRequest` is the single
-stated exception ([DD-029](../../docs/design-decisions.md#dd-029), §6).
+The two sides also have different **timing** contracts, but as of
+[DD-029](../../docs/design-decisions.md#dd-029) they share a **reliability** kind:
+both sides are `RELIABLE`. The presentation topics are `RELIABLE` +
+`TRANSIENT_LOCAL` + `KEEP_LAST 1` so that a late-joining scada-web receives the
+latest value and the whole catalogue per uid, including for tags that change
+slowly. What differs across the boundary is the *timing* contract and the failure
+appetite (§3.8), not the reliability kind ([DD-029](../../docs/design-decisions.md#dd-029), §6).
 
 ---
 
@@ -239,7 +243,7 @@ alternative that seems obvious:
 |---|---|---|
 | **Decimate on arrival** | Timer-driven emit | O(1) per sample, no timers, and naturally correct when the source is slower than the requested rate. A timer spaces output more evenly but must hold samples and wake up — not worth it for display data. |
 | **`steady_clock`** | The payload's `valueTime` | Source stamps may be irregular or skewed. The decimation decision is about *our* output cadence, not the field's. |
-| **`period_ms == 0` = selector YAML default** | `0` = every sample | The startup default is operational config; the `PERIOD` command only overrides the global setting when nonzero. Set the YAML default to `0` if every sample is desired. |
+| **`period_ms == 0` restores the startup default** | `0` = every sample | The startup default is operational config, and `0` is how the web side reverts a runtime override without knowing what was configured. `0` deliberately cannot mean "every sample": the presentation side is never driven at the full field rate from the UI. A deployment that wants no decimation sets the startup default to `0` locally — scada-web rejects a `0` request rather than sending it. |
 | **Latest sample wins** | Oldest, or aggregate | Display data: the freshest value is the useful one. Nothing is averaged — that would be a model change (§3.2). |
 
 The rate axis is not a nicety. It is what keeps the volume reaching scada-web's
@@ -254,16 +258,21 @@ A dispose or unregister must reach the display *now*, not at the next tick — a
 tag going stale is exactly the event an operator must not see late. So instance
 lifecycle notifications are forwarded unconditionally for any selected uid.
 
-> **Necessary but no longer sufficient, under
-> [DD-029](../../docs/design-decisions.md#dd-029).** The web side is
-> `BEST_EFFORT`, so a forwarded dispose can be **dropped in transit — and unlike a
-> value, it is never repeated.** Forwarding it immediately stops being a guarantee
-> that scada-web ever learns the tag is gone. Two mitigations, and the first is
-> required: **scada-web must treat sample absence as staleness** (no update within
-> N expected periods ⇒ stale on the display), which ISA-101 practice wants
-> regardless of transport. Cheap adjunct here: **write disposes two or three
-> times**, since they are rare and tiny. Bypassing the rate limit is still correct
-> — it is just no longer the whole story.
+> **Sufficient again, under the current
+> [DD-029](../../docs/design-decisions.md#dd-029).** An earlier version of this note
+> warned that a `BEST_EFFORT` presentation side could drop a forwarded dispose in
+> transit, and that unlike a value it is never repeated — so forwarding it promptly
+> was no guarantee that scada-web ever learned the tag was gone. With the
+> presentation topics `RELIABLE`, delivery of the retraction is guaranteed as long
+> as the reader stays matched, and the two mitigations that note required are
+> demoted to good practice rather than necessities: **scada-web treating sample
+> absence as staleness** (no update within N expected periods ⇒ stale on the
+> display) is still what ISA-101 practice wants regardless of transport, and
+> **writing disposes two or three times** is no longer needed at all.
+>
+> One real gap remains: a retraction that occurs while scada-web is disconnected is
+> delivered on reconnect only for instances still in the writer's
+> `TRANSIENT_LOCAL` cache. Absence-as-staleness is what covers that case.
 
 Invalid samples carry only the key, so recovering the uid requires
 `reader.key_value(key_holder, info.instance_handle())` rather than a payload
@@ -340,17 +349,21 @@ which is idempotent and lets a restarted selector recover its whole subscription
 set from the middleware. The union redesign (adding `PERIOD` as a separate command)
 did not take that step, so **both consequences stand today.**
 
-**And under [DD-029](../../docs/design-decisions.md#dd-029) that stays true on both
-sides of the boundary — the title needs no further qualification.** An earlier draft
-of this section had the selector re-originating `TRANSIENT_LOCAL` durability for the
-forwarded catalogue, making its outbound writer cache the one durable thing in the
-process. That does not survive the web side being `BEST_EFFORT`: **`TRANSIENT_LOCAL`
-delivers historical samples to a late joiner only if both the writer and the reader
-are `RELIABLE`** (verified against 7.7.0 — §10). A best-effort reader would get
-nothing from a durable writer, so durability there would be decoration.
+**Under the current [DD-029](../../docs/design-decisions.md#dd-029) the selector
+*does* re-originate durability, and the title means "no *application* state".** The
+outbound `SelectedValue` and `SelectedMetaData` writers are `TRANSIENT_LOCAL` +
+`KEEP_LAST 1`, so a late-joining scada-web receives the latest sample per uid from
+Connext's writer caches. That works precisely because **`TRANSIENT_LOCAL` delivers
+historical samples to a late joiner only if both the writer and the reader are
+`RELIABLE`** (verified against 7.7.0 — §10), and DD-029 makes both ends reliable. An
+intermediate draft had this side `BEST_EFFORT`, under which durability here would
+have been decoration and the catalogue had to be served on request instead; that is
+no longer the mechanism.
 
-The catalogue is therefore **served on request** (§4.4), and what remains inside the
-selector is one Connext-owned cache on the **field** side:
+So there are Connext-owned caches on both sides, and still no
+`unordered_map<int32_t, MetaData>` anywhere in the process. The load-bearing one
+remains the **field**-side `MetaData` reader cache, because it is what
+`Command_t::METADATA` re-reads (§4.4):
 
 - **The store is Connext-owned, not application-owned.** A `RELIABLE` +
   `TRANSIENT_LOCAL` + `KEEP_LAST 1` reader on a `@key uid` topic holds exactly one
@@ -377,19 +390,32 @@ especially `selection.default_min_separation_ms`.
 
 So: CLI flags (`--field-domain`, `--web-domain`, `--value-topic`,
 `--selected-topic`, `--metadata-topic`, `--selected-metadata-topic`,
-`--request-topic`, `--qos-file`, `--verbosity`) with the topic names from
-[system-architecture.md](../../docs/system-architecture.md) §4 as defaults, plus
-[scada_select/config.yaml](../config.yaml) for operational defaults and QoS
-profile paths. Two domain flags rather than one because
-of §3.8; setting both to the same value is the single-domain deployment.
+`--request-topic`, `--qos-file`, `--config`, `--uid-range-low`,
+`--uid-range-high`, `--min-separation-ms`, `--verbosity`, `--help`), plus
+[scada_select/config.yaml](../config.yaml) for operational defaults and the QoS
+profile path. Precedence is **built-in default < YAML < flag**. Two domain flags
+rather than one because of §3.8; setting both to the same value is the
+single-domain deployment.
 
-**The IDL is copied into `idl/`, and that is a real duplication** of
-[`dds/idl/PlcValue.idl`](../../dds/idl/PlcValue.idl). It is the residue of
-[OQ-20](../../docs/questions.md#oq-20): the intended end state is one IDL with two automated
-derivations — `rtiddsgen` for this component, `rtiddsgen -convertToXml` for the
-types library scada-web loads — so nothing is hand-transcribed. Until that is
-wired, prefer pointing `CMakeLists.txt` at `../dds/idl/PlcValue.idl` over keeping a
-second copy in sync by hand.
+**Topic-name defaults are the IDL constants, not literals and not YAML.**
+`PLC::IdValueTopic`, `PLC::MetaDataTopic`, `PLC::SelectedValueTopic`,
+`PLC::SelectedMetaDataTopic`, and `PLC::ValueRequestTopic` are read from the
+generated header, and the domain defaults from `PLC::FIELD_DOMAIN_ID` /
+`PLC::PRESENTATION_DOMAIN_ID`, so there is exactly one place a topic name is
+written down (DD-043). The `--*-topic` flags exist for testing against a renamed
+topic; config.yaml deliberately has no `topics:` block. A relative path *inside*
+config.yaml is resolved against the config file's own directory, so the file works
+from any working directory; the flag defaults assume `scada_select/build`.
+
+**There is no `idl/` copy — this component generates from the shared IDL.**
+`CMakeLists.txt` runs `rtiddsgen` directly on
+[`dds/idl/PlcValue.idl`](../../dds/idl/PlcValue.idl) into the build tree, which
+settles the half of [OQ-20](../../docs/questions.md#oq-20) that concerns this
+component (DD-043). The intended end state is that one IDL with two automated
+derivations — `rtiddsgen` here, `rtiddsgen -convertToXml` for the types library
+scada-web loads — leaves nothing hand-transcribed; the remaining transcription is
+`sim/plc_types.py`, which builds its `DynamicType`s programmatically per DD-002 and
+so mirrors the IDL by hand.
 
 ### 3.8 The Real-Time Boundary
 
@@ -400,7 +426,7 @@ between two zones with **different timing contracts**, and it is the only condui
 |---|---|---|
 | Participants | sim L1 publishers, selector readers | selector writers, scada-web, browsers |
 | Timing contract | Bounded, deterministic latency; a missed deadline is a **failure** | Latency is a *target*; a late or dropped display update is a **degradation** |
-| **Reliability** | **`RELIABLE`** | **`BEST_EFFORT`** ([DD-029](../../docs/design-decisions.md#dd-029)) — except inbound `ValueRequest` |
+| **Reliability** | **`RELIABLE`** | **`RELIABLE`** ([DD-029](../../docs/design-decisions.md#dd-029)) — the kinds match; the timing contracts do not |
 | Data representation | Compiled types | `DynamicData`, then JSON |
 | Transport | DDS/UDP, one plant network | DDS, then TCP/WebSocket to browsers |
 | Volume | Full scan rate, batched | Selected uids, downrated (§3.3) |
@@ -410,35 +436,47 @@ between two zones with **different timing contracts**, and it is the only condui
 back-pressure the hard side.** A boundary that propagates congestion upstream is
 not a boundary; it is a coupling with a diagram drawn around it.
 
-**`BEST_EFFORT` on the web side is what enforces this, and it enforces it by
-construction.** A best-effort writer has no send window to exhaust, no
-unacknowledged samples to retain, and no ACK to wait for, so there is no state in
-which it blocks waiting for a slow consumer. The failure mode is not mitigated; it
-is absent. Three rules remain, now as defense in depth rather than as the guarantee
-itself:
+**With [DD-029](../../docs/design-decisions.md#dd-029) making the presentation side
+`RELIABLE`, this invariant is enforced by discipline, not by construction.** An
+earlier version of this section relied on `BEST_EFFORT`: a best-effort writer has no
+send window to exhaust, no unacknowledged samples to retain, and no ACK to wait for,
+so the failure mode was absent rather than mitigated. DD-029 traded that structural
+guarantee for a late-joining reader that receives the latest value per uid. The
+guarantee therefore has to be *maintained* now, by three rules that are load-bearing
+rather than belt-and-braces:
 
-1. **Outbound writers still use `KEEP_LAST`, never `KEEP_ALL`.** Under DD-029 this
-   is belt-and-braces — it documents intent and it is what would keep the invariant
-   if reliability were ever raised on this side. It mattered absolutely under the
-   earlier `RELIABLE` design: a `RELIABLE` + `KEEP_ALL` writer whose resource
-   limits fill **blocks in `write()`** on the dispatch thread, which stops draining
-   the inbound reader, whose cache overflows — a stalled browser degrading
-   field-side reception. Keep the rule; the reason it is cheap now is that
-   `BEST_EFFORT` already removed the mechanism.
-2. **`max_blocking_time` is short, and a timeout is a drop.** Log it, count it,
+1. **Outbound writers use `KEEP_LAST`, never `KEEP_ALL`.** This is the rule that
+   matters most again. A `RELIABLE` + `KEEP_ALL` writer whose resource limits fill
+   **blocks in `write()`** on the dispatch thread, which stops draining the inbound
+   reader, whose cache then overflows — a stalled browser degrading field-side
+   reception. With `KEEP_LAST 1` the writer replaces per instance instead of
+   retaining, so there is nothing to fill.
+2. **The reliable send window is unlimited, and stated rather than inherited.**
+   `rtps_reliable_writer.max_send_window_size` is what throttles a `RELIABLE`
+   `write()` when a reader stops ACKing, independently of history depth. The
+   default is `LENGTH_UNLIMITED`, but
+   [profiles.xml](../../dds/qos/profiles.xml) sets it explicitly on both
+   presentation writers so that inheriting a strict-reliable builtin snippet (which
+   pins a finite window, typically 40) cannot silently reintroduce back-pressure.
+3. **`max_blocking_time` is short, and a timeout is a drop.** Log it, count it,
    continue. Never retry inside the dispatch callback — that converts one late
-   sample into a stalled loop.
-3. **`ASYNCHRONOUS_PUBLISH_MODE` with a `FlowController`** is no longer needed for
-   isolation, only for burst shaping if measurement shows the send path intruding
-   on the read path. Lower priority than it was.
+   sample into a stalled loop. This is the backstop for rules 1 and 2 being
+   changed: with them in place a timeout should not occur, and the selector counts
+   them (`write_timeouts` in `DataPlane` / `MetaDataPlane`) precisely so that a
+   nonzero count is a signal that one of them has been broken.
 
-**What `BEST_EFFORT` costs, stated plainly.** Loss on the web side is invisible to
-the receiver: scada-web cannot infer what never arrived, so the selector must count
-what it wrote. The sharper cost is §3.4's — **a lost dispose is never repeated**,
-so "this tag went away" becomes an inference rather than an event, and scada-web
-must treat sample absence as staleness. Whether a `BEST_EFFORT` reader's
-`SampleLostStatus` reports useful gap information here is **unverified**; do not
-design on it without checking.
+`ASYNCHRONOUS_PUBLISH_MODE` with a `FlowController` remains unnecessary for
+isolation — it is for burst shaping, if measurement ever shows the send path
+intruding on the read path.
+
+**What `RELIABLE` on this side buys and costs.** It buys the thing DD-029 wanted:
+a late-joining or reconnecting scada-web gets the latest sample per uid without
+waiting for the next publish, which matters for slow-changing tags and makes
+lifecycle retractions reliable rather than best-effort. It costs the structural
+impossibility of back-pressure, which is now a property of three QoS settings and a
+`try`/`catch` instead of a property of the reliability kind. The regression test for
+this (§8) is therefore not optional: it is the only thing standing between the
+current configuration and a stalled browser reaching the plant network.
 
 **Dropping under congestion is policy here, not failure.** §3.3 already drops
 deliberately (rate limiting), so the same disposition under a different trigger
@@ -548,12 +586,14 @@ overrides the selector's global minimum separation loaded from YAML at startup.
 This is the runtime control path for the web UI's "update rate" slider — one
 command changes the cadence for all selected tags, not per-tag.
 
-**And under [DD-029](../../docs/design-decisions.md#dd-029) it is the *primary*
-bootstrap path, not a fallback.** An earlier draft called it secondary, on the
-assumption that `TRANSIENT_LOCAL` would deliver the catalogue to a late joiner
-without asking. With the web side `BEST_EFFORT` that is not available — durable
-delivery requires reliability on both ends — so this command is how the catalogue
-gets across at all. It needs a sentinel `uid` meaning "all" to bootstrap (§4.4).
+**Under the current [DD-029](../../docs/design-decisions.md#dd-029) it is a
+*targeted re-read*, not the bootstrap path.** An intermediate draft made it the
+primary bootstrap mechanism, because a `BEST_EFFORT` presentation side cannot receive
+durable history. With both ends `RELIABLE` + `TRANSIENT_LOCAL`, a late joiner gets
+the whole catalogue from the writer cache without asking, so `METADATA` exists to
+re-fetch one uid on demand — and the sentinel `uid` meaning "all" is consequently
+**not implemented** (see `MetaDataPlane::handle_metadata_request`). Add it only if a
+concrete case needs it.
 
 `name` is redundant with `uid` here. It is retained for readable logs and for a
 possible name-based lookup path ([OQ-13](../../docs/questions.md#oq-13)).
@@ -616,18 +656,18 @@ metadata_reader.read()        ← read(), NOT take() — see below
 scada-web: uid→metadata map  (its own state, DD-024 unchanged)
 ```
 
-**The request path is the bootstrap path, not a fallback.** This inverts what an
-earlier draft said, and the reason is
-[DD-029](../../docs/design-decisions.md#dd-029): with the web side `BEST_EFFORT`,
-durability cannot deliver the catalogue to a late-joining scada-web, so *asking* is
-the only mechanism that works. Two properties make it sound:
+**Durability is the bootstrap path; the request path is a targeted supplement.**
+This reverses an intermediate draft, and the reason is the current
+[DD-029](../../docs/design-decisions.md#dd-029): the presentation topics are
+`RELIABLE` + `TRANSIENT_LOCAL`, so a late-joining scada-web receives the latest
+catalogue sample per uid from the writer cache without asking for it. `METADATA`
+remains useful for re-fetching a single uid, and it retains two properties worth
+keeping:
 
-- **The ask itself is reliable.** `ValueRequest` is the one `RELIABLE` channel on
-  the web side (§6), so the request cannot be silently lost even though the reply
-  can.
-- **The requester knows what it asked for**, so a lost reply is detectable and
-  re-askable. That is exactly what durability would *not* have given scada-web, and
-  it is why request/reply beats the alternatives here (the
+- **The ask itself is reliable.** `ValueRequest` is `RELIABLE` + `KEEP_ALL` (§6), so
+  a request cannot be silently lost.
+- **The requester knows what it asked for**, so a missing reply is detectable and
+  re-askable. Under the earlier best-effort design this was the whole mechanism (the
   `on_publication_matched()` republish trick races and is not a documented
   mechanism; periodic re-announce pays continuously for a startup problem).
 
@@ -668,22 +708,27 @@ for (const auto &s : samples) {
 }
 ```
 
-**Durability is *not* carried across the boundary.** `RELIABLE` +
-`TRANSIENT_LOCAL` + `KEEP_LAST 1` inbound, `BEST_EFFORT` + `VOLATILE` outbound
-([DD-029](../../docs/design-decisions.md#dd-029)). Making the outbound topic durable
-would be decoration: a best-effort reader receives no historical samples from a
-durable writer, so the durability would cost cache and buy nothing. If the
-request/reply bootstrap ever proves fiddly, the one-line alternative is to make this
-single topic `RELIABLE` + `TRANSIENT_LOCAL` — a second stated exception, and RTI's
-own suggested split of "catalogue reliable, live stream best-effort".
+**Durability *is* carried across the boundary.** `RELIABLE` + `TRANSIENT_LOCAL` +
+`KEEP_LAST 1` inbound, and the same outbound
+([DD-029](../../docs/design-decisions.md#dd-029)). The outbound writer cache is what
+serves a late-joining scada-web, which is only sound because both ends are
+`RELIABLE`. An intermediate draft had this side `BEST_EFFORT` + `VOLATILE`, where
+durability would have been decoration — a best-effort reader receives no historical
+samples from a durable writer.
 
-**Lifecycle transitions use the §3.4 path, with §3.4's new caveat.** A disposed tag
-must retract from the catalogue, or scada-web's map keeps a tag the plant no longer
-has. Same `dispose_instance` / `unregister_instance` mapping, same nil-handle guard,
-and no rate limit — metadata has no rate limit to bypass. But a retraction can be
-**lost** on a best-effort link and is never repeated, so the catalogue converges by
-scada-web re-asking, not by the retraction being guaranteed. A periodic re-ask is
-the cheapest way to bound how long a stale catalogue entry can survive.
+**Lifecycle transitions use the §3.4 path.** A disposed tag must retract from the
+catalogue, or scada-web's map keeps a tag the plant no longer has. Same
+`dispose_instance` / `unregister_instance` mapping, same nil-handle guard, and no
+rate limit — metadata has no rate limit to bypass. Delivery of the retraction is
+reliable, so the catalogue converges without scada-web re-asking. The residual case
+is a retraction that happens while scada-web is disconnected: absence-as-staleness
+on the display, not a re-ask loop, is what bounds how long a stale entry survives.
+
+**The forwarding filter must not mask lifecycle events.** `read()` here is filtered
+on `NOT_READ` with **any** instance state. `DataState::new_data()` looks correct and
+is not: it masks instance state to `ALIVE`, which silently drops every invalid
+sample carrying a dispose or unregister, making the retraction branch above
+unreachable. The same applies to the `ReadCondition` that wakes the WaitSet (§4.1).
 
 ---
 
@@ -699,11 +744,11 @@ The whole of the selector's state:
 
 The third row is new with [DD-028](../../docs/design-decisions.md#dd-028) and is the
 reason §3.6's title changed from "no durable state" to "no *application* state". It
-is a **field-side reader** cache, not an outbound durable writer: an earlier draft
-had a fourth row for a `TRANSIENT_LOCAL` `SelectedMetaData` writer, which
-[DD-029](../../docs/design-decisions.md#dd-029) removed — durability on a
-best-effort link delivers nothing to a late joiner, so the catalogue is served on
-request instead. One cache, on the reliable side, is the whole of it.
+is load-bearing because `Command_t::METADATA` re-reads it. Under the current
+[DD-029](../../docs/design-decisions.md#dd-029) there are also the two outbound
+`TRANSIENT_LOCAL` writer caches (`KEEP_LAST 1` per uid, Connext-owned), which serve
+late-joining scada-web readers; an intermediate best-effort draft had removed them.
+All of it is Connext-owned. None of it is an application map.
 
 The distinction is not pedantry — it is the line that keeps DD-024 intact:
 
@@ -739,11 +784,13 @@ because it runs the process; the web side is not, because it draws pictures of i
 
 Four QoS choices worth arguing rather than inheriting:
 
-- **`BEST_EFFORT` outbound is what makes §3.8's invariant structural.** A
-  best-effort writer has no send window to exhaust, no unacknowledged samples to
-  retain, and no ACK to wait for, so it cannot block on a slow consumer at all.
-  `KEEP_LAST` stays as defense in depth and as a statement of intent, but it is no
-  longer the thing carrying the guarantee.
+- **`RELIABLE` outbound means §3.8's invariant is maintained, not structural.**
+  `KEEP_LAST 1` plus an explicitly unlimited send window are what keep a slow
+  browser from blocking `write()` on the dispatch thread; a short
+  `max_blocking_time` plus a counted `try`/`catch` is the backstop if either is ever
+  changed. An intermediate draft used `BEST_EFFORT` here, which made blocking
+  impossible by construction but denied late joiners the latest value per uid —
+  DD-029 chose the late joiner and accepted the maintenance burden.
 - **`RELIABLE` + `KEEP_ALL` inbound on `ValueRequest` is the one exception, and it
   is safe.** Operator intent on an unkeyed command stream does not self-heal — a
   lost `ADD` means a tag silently never turns on
@@ -842,14 +889,21 @@ version adds a handle map to maintain and a per-instance take loop, and may well
 be slower for a ~100-byte type. NFR-PERF-001 asks for a relative comparison,
 which is all this needs to settle.
 
-**Write the catalogue-bootstrap tests first.** That is a change from the previous
-draft, which put the backpressure test first — [DD-029](../../docs/design-decisions.md#dd-029)
-demoted it, because `BEST_EFFORT` removes the mechanism it was hunting for rather
-than merely constraining it. Keep it as a regression guard against reliability being
-raised here later. The bootstrap path is now the fragile part: it is the one place
-where the system depends on an application-level retry loop rather than on
-middleware guarantees, and the failure — an empty or partial tag catalogue — is both
-silent and easy to mistake for "no tags configured".
+**Write the back-pressure test first.** An intermediate draft demoted it, on the
+grounds that `BEST_EFFORT` removed the mechanism it hunts for. The current
+[DD-029](../../docs/design-decisions.md#dd-029) puts the mechanism back: with a
+`RELIABLE` presentation writer, the only things preventing a stalled browser from
+degrading field-side reception are `KEEP_LAST 1`, an unlimited send window, and a
+bounded `max_blocking_time` (§3.8). Each is one line of QoS that a future edit could
+undo, and the resulting failure is remote from its cause — the symptom appears on
+the *field* reader. Test it: stall a `SelectedValue` reader, keep the sim publishing,
+and assert that the field-side `replaced_dropped_sample_count` stays at zero and
+`write_timeouts` stays at zero.
+
+**Then the catalogue tests.** These are cheaper than they were, because durability
+now does the bootstrap: assert that a late-joining reader receives every tag without
+sending `METADATA`, and that `METADATA` for one uid re-delivers just that uid. The
+failure mode to watch for is a partial catalogue that reads as "no tags configured".
 
 ---
 
@@ -865,7 +919,7 @@ Bearing on this component specifically:
 | [OQ-20](../../docs/questions.md#oq-20) | Single source of truth for types? | Decides whether `idl/` is a copy or a generated derivation (§3.7) |
 | [OQ-18](../../docs/questions.md#oq-18) | `LIFESPAN` on `ValueRequest`? | Would bound how stale a replayed request can be |
 | [OQ-26](../../docs/questions.md#oq-26) | One DDS domain or two across the boundary? | Decides whether `--field-domain` and `--web-domain` differ in deployment (§3.8) |
-| [OQ-25](../../docs/questions.md#oq-25) | Keep the WIS polling surface on a shared reader? | Its recommended option A is now the only coherent one: `BEST_EFFORT` + `VOLATILE` + `KEEP_LAST 1` is a current-value stream, so take-once queue semantics have nothing to take from ([DD-029](../../docs/design-decisions.md#dd-029)) |
+| [OQ-25](../../docs/questions.md#oq-25) | Keep the WIS polling surface on a shared reader? | Its recommended option A remains the coherent one: `KEEP_LAST 1` makes this a current-value stream either way, so take-once queue semantics have nothing to take from ([DD-029](../../docs/design-decisions.md#dd-029)) |
 | [OQ-22](../../docs/questions.md#oq-22) | Purdue zones via DDS Security? | Now structurally reachable: DD-028 makes the conduit a real component, so option (b) — a domain per level — is available (§3.8). The selector is the enforcement point |
 
 Future work, in rough order of value:

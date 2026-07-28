@@ -36,7 +36,16 @@ void DataPlane::process() {
         }
 
         if (table_.should_forward(uid, now)) {
-            writer_.write(s.data());
+            try {
+                writer_.write(s.data());
+            } catch (const dds::core::TimeoutError &) {
+                // §3.8 rule 2: a write that hits max_blocking_time is a
+                // counted drop, never a retry inside the dispatch callback --
+                // retrying here would turn one late sample into a stalled loop
+                // that stops draining the field-side reader. main() reports
+                // the count.
+                ++write_timeouts_;
+            }
         }
     }
 }
@@ -50,11 +59,18 @@ void DataPlane::forward_lifecycle(const dds::sub::SampleInfo &info,
         return;
     }
 
-    if (info.state().instance_state() ==
-        dds::sub::status::InstanceState::not_alive_disposed()) {
-        writer_.dispose_instance(out);
-    } else {
-        writer_.unregister_instance(out);
+    try {
+        if (info.state().instance_state() ==
+            dds::sub::status::InstanceState::not_alive_disposed()) {
+            writer_.dispose_instance(out);
+        } else {
+            writer_.unregister_instance(out);
+        }
+    } catch (const dds::core::TimeoutError &) {
+        // Same policy as a value write. This one is worse to lose -- a dropped
+        // retraction is never repeated -- but blocking the boundary is not the
+        // remedy; scada-web treating absence as staleness is (DD-029).
+        ++write_timeouts_;
     }
 }
 

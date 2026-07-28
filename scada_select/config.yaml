@@ -1,29 +1,33 @@
 # scada-selector configuration
 #
-# Fixed DDS topology is controlled by domain/topic names and shared QoS profiles.
-# Domain IDs are defined in dds/idl/PlcValue.idl:
-#   PLC::FIELD_DOMAIN_ID = 15
-#   PLC::PRESENTATION_DOMAIN_ID = 16
-# Selection defaults are loaded at startup; the PERIOD command (ValueRequest union)
-# overrides the global minimum separation at runtime.
+# Operator-tunable startup defaults only (scada-select-architecture.md §3.7).
+# Every key here can be overridden by a command-line flag; run
+# `scada_selector --help` for the full list. Precedence is:
+#   built-in default  <  this file  <  command-line flag
+#
+# Topic names and domain IDs are deliberately NOT configured here. They come
+# from the constants in dds/idl/PlcValue.idl, which is the single source of
+# truth for the wire contract (DD-043) -- PLC::IdValueTopic,
+# PLC::MetaDataTopic, PLC::SelectedValueTopic, PLC::SelectedMetaDataTopic,
+# PLC::ValueRequestTopic, PLC::FIELD_DOMAIN_ID = 15,
+# PLC::PRESENTATION_DOMAIN_ID = 16. The --*-topic flags exist for one-off
+# testing against a renamed topic, not for routine configuration.
 
+# Relative paths are resolved against this file's directory, not the working
+# directory the selector was started from.
 qos_profiles: ../dds/qos/profiles.xml
 
 selection:
   # Default minimum time between forwarded SelectedValue samples for one uid.
-  # The PERIOD command overrides this at runtime when period_ms is nonzero.
-  # Set to 0 to forward every selected field sample by default.
+  # The PERIOD command (ValueRequest union) overrides this at runtime when
+  # period_ms is nonzero; PERIOD with period_ms == 0 restores this value.
+  #
+  # 0 here forwards every selected field sample. That is a local decision only
+  # -- the web side cannot request the full field rate, by design.
   default_min_separation_ms: 250
   # Phase 1 PoC uid range pre-enabled at startup (DD-039). No catalogue
   # bootstrap or dynamic ADD is required for the range to be forwarded;
   # ValueRequest ADD/DELETE can still narrow or widen it at runtime.
+  # The range is inclusive and capped at 100000 uids.
   uid_range_low: 100
   uid_range_high: 500
-
-topics:
-  idvalue: "PLC::IdValueTopic"
-  metadata: "PLC::MetaDataTopic"
-  selected_value: "PLC::SelectedValueTopic"
-  selected_metadata: "PLC::SelectedMetaDataTopic"
-  value_request: "PLC::ValueRequestTopic"
-

@@ -16,9 +16,10 @@ class SelectionTable {
 public:
     using Clock = std::chrono::steady_clock;
 
-    // default_min_separation_ms is the selector's YAML startup default
-    // (config.yaml selection.default_min_separation_ms). 0 means forward
-    // every selected sample.
+    // default_min_separation_ms is the selector's startup default
+    // (config.yaml selection.default_min_separation_ms, or
+    // --min-separation-ms). 0 here -- and only here, never from a PERIOD
+    // command -- means forward every selected sample.
     explicit SelectionTable(std::uint32_t default_min_separation_ms);
 
     // Enable forwarding for uid. A no-op if uid is already selected -- not an
@@ -36,13 +37,19 @@ public:
 
     std::size_t size() const;
 
-    // PERIOD command: period_ms == 0 means "leave the current global
-    // separation unchanged" (the selector YAML default already loaded);
-    // nonzero overrides it for all selected uids
+    // PERIOD command: period_ms == 0 restores the startup default passed to the
+    // constructor; nonzero overrides the global separation for all selected uids
     // (scada-select-architecture.md §3.1, §4.2).
+    //
+    // 0 is not "forward every sample" -- the web side cannot request the full
+    // field rate. Only local configuration (a startup default of 0) can do that.
     void set_period(std::uint32_t period_ms);
 
+    // The separation currently in force.
     std::uint32_t period_ms() const;
+
+    // The startup default that period_ms == 0 restores.
+    std::uint32_t default_period_ms() const;
 
     // The data-plane decimation decision (scada-select-architecture.md §4.3):
     // returns true iff uid is selected AND enough time has passed since it
@@ -63,7 +70,8 @@ private:
     };
 
     std::unordered_map<std::int32_t, TagState> subscriptions_;
-    std::uint32_t min_separation_ms_;
+    std::uint32_t default_min_separation_ms_;  // immutable after construction
+    std::uint32_t min_separation_ms_;          // current, possibly overridden
 };
 
 }  // namespace scada_select

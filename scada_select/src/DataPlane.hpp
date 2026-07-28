@@ -6,6 +6,8 @@
 // bypass the rate limit unconditionally (§3.4).
 #pragma once
 
+#include <cstdint>
+
 #include <dds/dds.hpp>
 
 #include "PlcValue.hpp"
@@ -23,6 +25,11 @@ public:
     // Must not block -- runs on the WaitSet dispatch thread (§3.5).
     void process();
 
+    // Outbound writes dropped after hitting the writer's max_blocking_time.
+    // Loss on the web side is invisible to the receiver, so the selector has
+    // to count what it failed to write (§3.8).
+    std::uint64_t write_timeouts() const { return write_timeouts_; }
+
 private:
     void forward_lifecycle(const dds::sub::SampleInfo &info,
                             const PLC::IdValue &key_holder);
@@ -30,6 +37,7 @@ private:
     SelectionTable &table_;
     dds::sub::DataReader<PLC::IdValue> reader_;
     dds::pub::DataWriter<PLC::IdValue> writer_;
+    std::uint64_t write_timeouts_{0};
 };
 
 }  // namespace scada_select
