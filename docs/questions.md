@@ -97,7 +97,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-42](#oq-42) | Test strategy: what tests does the PoC need? | DECIDED | MEDIUM | DG | Regression visibility |
 | [OQ-43](#oq-43) | What concrete value is the `METADATA` sentinel uid? | DEFERRED — phase 0 uses preset range (DD-039) | MEDIUM | DG | Catalogue bootstrap, IDL contract |
 | [OQ-44](#oq-44) | What happens if `key_value()` is called on a purged instance handle? | DECIDED → [DD-048](design-decisions.md#dd-048) | MEDIUM | DG | Lifecycle forwarding correctness |
-| [OQ-45](#oq-45) | Selector graceful-shutdown contract: dispose own instances? | OPEN | MEDIUM | DG | Downstream disconnect detection |
+| [OQ-45](#oq-45) | Selector graceful-shutdown contract: dispose own instances? | DECIDED → [DD-049](design-decisions.md#dd-049) | MEDIUM | DG | Downstream disconnect detection |
 | [OQ-46](#oq-46) | `SelectedValue` topic type registration name — must match `IdValue`? | OPEN | MEDIUM | DG | Discovery, scada-web reader setup |
 | [OQ-47](#oq-47) | Selector liveness detection from scada-web | OPEN | LOW | DG | Distinguishing "no updates" from "selector gone" |
 | [OQ-48](#oq-48) | `METADATA` on-demand re-read uses `any_sample_state()`, not `new_data()`? | OPEN | MEDIUM | DG | METADATA command returning empty |
@@ -1773,9 +1773,12 @@ architecture describes no fallback.
 ### OQ-45
 **Selector graceful-shutdown contract: dispose own instances?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Downstream disconnect detection on best-effort link
 - **Raised:** 2026-07-27 (scada-select architecture review)
+- **Decision:** 2026-07-27 — [DD-049](design-decisions.md#dd-049). Option (a): rely on
+  autodispose + participant liveliness lease expiry. Reduce lease to 5s in QoS
+  profile. No explicit dispose loop or shutdown code.
 
 **Context.** The architecture says "dispatch() loop until SIGINT/SIGTERM" and
 "the signal handler only has to stop the dispatch loop." On a `BEST_EFFORT` link,

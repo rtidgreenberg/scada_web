@@ -1948,3 +1948,35 @@ lifecycle key recovery.
 
 **Revisit if.** The DDS API gains a guaranteed-safe `key_value()` that never
 throws on purged handles, making the map redundant.
+
+---
+
+### DD-049
+**Selector shutdown relies on participant liveliness lease expiry.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-45](questions.md#oq-45) · **Affects:** [OQ-47](questions.md#oq-47), QoS profiles
+
+**Decision.** The selector does not explicitly dispose instances on shutdown.
+Downstream (scada-web) detects selector departure via participant liveliness:
+`on_liveliness_changed` fires when the lease expires. The QoS profile sets
+`liveliness.lease_duration` to 5 seconds (down from default 100s) so detection
+is prompt without application-level shutdown code.
+
+**Context.** The downstream link is BEST_EFFORT, so explicit dispose writes can
+be lost. Adding reliability for lifecycle only (while data remains best-effort)
+is complex and contradicts DD-029. Participant liveliness is the DDS-native
+mechanism for exactly this — it doesn't depend on sample delivery.
+
+**Alternatives.** (b) Explicit dispose loop (2–3 writes) — rejected because
+still lossy on best-effort, and adds shutdown-ordering complexity for
+uncertain benefit. (c) Dedicated RELIABLE status topic — rejected as overkill
+for a PoC with one client.
+
+**Consequences.** Selector shutdown detection takes up to 5s (one lease
+duration). The SPDP assertion period becomes ~1.67s (lease/3), adding trivial
+network overhead. No application shutdown code beyond stopping the dispatch
+loop and closing the participant.
+
+**Revisit if.** Detection latency of 5s is unacceptable for the use case, or
+multiple selectors are deployed and individual failure must be identified
+faster than lease expiry.
