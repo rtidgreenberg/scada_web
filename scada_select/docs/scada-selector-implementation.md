@@ -115,22 +115,30 @@ pass.
 #include <dds/dds.hpp>
 #include "PlcValue.hpp"
 
-dds::domain::DomainParticipant participant(0);
-dds::sub::Subscriber subscriber(participant);
-dds::pub::Publisher  publisher(participant);
+dds::domain::DomainParticipant field_participant(0);
+dds::domain::DomainParticipant presentation_participant(1);
+dds::sub::Subscriber field_subscriber(field_participant);
+dds::sub::Subscriber presentation_subscriber(presentation_participant);
+dds::pub::Publisher  presentation_publisher(presentation_participant);
+dds::core::QosProvider qos_provider("file://../dds/qos/profiles.xml");
 
 // Control plane. RELIABLE + KEEP_ALL — DD-023.
-dds::topic::Topic<PLC::ValueRequest> request_topic(participant, "PLC::ValueRequest");
-dds::sub::qos::DataReaderQos request_qos = subscriber.default_datareader_qos();
-request_qos << dds::core::policy::Reliability::Reliable()
-            << dds::core::policy::History::KeepAll();
-dds::sub::DataReader<PLC::ValueRequest> request_reader(subscriber, request_topic, request_qos);
+dds::topic::Topic<PLC::ValueRequest> request_topic(
+    presentation_participant, "PLC::ValueRequest");
+dds::sub::qos::DataReaderQos request_qos =
+    qos_provider.datareader_qos("presentation::value_request");
+dds::sub::DataReader<PLC::ValueRequest> request_reader(
+    presentation_subscriber, request_topic, request_qos);
 
 // Data plane. Same type in and out — Role 1 makes no model changes.
-dds::topic::Topic<PLC::IdValue> value_topic(participant, "PLC::IdValue");
-dds::topic::Topic<PLC::IdValue> selected_topic(participant, "PLC::SelectedValue");
-dds::sub::DataReader<PLC::IdValue> value_reader(subscriber, value_topic);
-dds::pub::DataWriter<PLC::IdValue> selected_writer(publisher, selected_topic);
+dds::topic::Topic<PLC::IdValue> value_topic(field_participant, "PLC::IdValue");
+dds::topic::Topic<PLC::IdValue> selected_topic(
+    presentation_participant, "PLC::SelectedValue");
+dds::sub::DataReader<PLC::IdValue> value_reader(
+    field_subscriber, value_topic, qos_provider.datareader_qos("field::idvalue"));
+dds::pub::DataWriter<PLC::IdValue> selected_writer(
+    presentation_publisher, selected_topic,
+    qos_provider.datawriter_qos("presentation::selected_value"));
 
 std::unordered_set<int32_t> enabled;
 
@@ -171,17 +179,20 @@ while (running) {
 `reader.take()` returns `LoanedSamples<T>`, which is RAII — the loan returns when
 the range goes out of scope. Do not retain references into it past that point.
 
-### 3.1 Adding rate control
+### 3.1 Adding minimum-separation control
 
 [DD-027](../../docs/design-decisions.md#dd-027) makes selection two-dimensional: by id **and**
-by rate. The state becomes per-uid rather than a bare set:
+by a global minimum separation. The selector loads
+`selection.default_min_separation_ms` from YAML at startup; a nonzero
+`ValueRequest.period_ms` overrides that global value at runtime. The selected set
+is per-uid, while the separation is process-wide:
 
 ```cpp
 struct TagState {
-    uint32_t period_ms   {0};   // 0 = forward every sample
     std::chrono::steady_clock::time_point last_emitted {};
 };
 std::unordered_map<int32_t, TagState> subscriptions;
+uint32_t min_separation_ms {default_min_separation_ms};
 ```
 
 and the data-plane handler decimates on arrival:
@@ -205,8 +216,9 @@ and the data-plane handler decimates on arrival:
         }
 
         TagState &st = it->second;
-        if (st.period_ms != 0
-            && now - st.last_emitted < std::chrono::milliseconds(st.period_ms)) {
+        const auto period = std::chrono::milliseconds(min_separation_ms);
+        if (min_separation_ms != 0
+            && now - st.last_emitted < period) {
             continue;                              // too soon
         }
         st.last_emitted = now;
@@ -224,8 +236,9 @@ Four choices worth stating explicitly, all defaults rather than the only options
   a real defect if missed.
 - **`steady_clock`, not `valueTime`.** Source timestamps may be irregular or
   skewed; the decimation decision is about *our* output cadence.
-- **`period_ms == 0` means every sample**, so an unset rate degrades to plain
-  selection rather than to silence.
+- **`period_ms == 0` means selector YAML default**, so the startup minimum
+    separation remains centralized unless the web UI sends a nonzero global runtime
+    override. Set the YAML default to `0` for every-sample forwarding.
 
 Invalid samples carry only the key, so recovering the uid needs
 `reader.key_value(key_holder, info.instance_handle())` rather than a payload read —

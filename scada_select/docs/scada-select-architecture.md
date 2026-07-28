@@ -41,8 +41,8 @@ stated exception ([DD-029](../../docs/design-decisions.md#dd-029), §6).
 Level 0/1 (sim/)          Level 2 (scada_select/)      Level 2 (scada_web/)
 ┌──────────────────┐      ┌─────────────┼────────┐     ┌──────────────────┐
 │ field_simulation │      │ SelectionTable        │     │ interest.py      │
-│ plc_publisher    │─DDS─▶│  per-uid {period,     │─DDS▶│ gateway.py       │
-│ plc_types        │      │   last_emitted}       │     │ server.py        │
+│ plc_publisher    │─DDS─▶│  global period +      │─DDS▶│ gateway.py       │
+│ plc_types        │      │   per-uid timestamps  │     │ server.py        │
 └──────────────────┘      │ metadata passthrough  │     │                  │
                           │ control ◀─── request ─┼─────┤                  │
                           └─────────────┼────────┘     └──────────────────┘
@@ -88,7 +88,7 @@ scada_select/
 │   └── qos.xml            QoS profiles per §6 (optional; defaults work)
 ├── src/
 │   ├── main.cxx           CLI, participant, wiring, signal handling
-│   ├── SelectionTable.hpp per-uid state — pure C++, no DDS
+│   ├── SelectionTable.hpp selected uids and timestamps — pure C++, no DDS
 │   ├── SelectionTable.cxx
 │   ├── ControlPlane.hpp   ValueRequest reader → SelectionTable mutations
 │   ├── ControlPlane.cxx
@@ -108,7 +108,7 @@ action. Only the data plane is on a path where per-sample cost matters.
 ### 2.1 Dependency Flow (acyclic)
 
 ```
-SelectionTable        (pure C++: uid → {period_ms, last_emitted})
+SelectionTable        (pure C++: uid → {last_emitted} + global separation)
       ▲   ▲
       │   └──────────── DataPlane ────▶ (dds::sub, dds::pub)
       │                     ▲
@@ -218,15 +218,18 @@ The v0.1 design had the selector emit an enriched `EnabledValue` carrying
 out, which deleted a type, a cache, and a denormalization cost from this
 component.
 
-### 3.3 Selection Is Two-Dimensional: id **and** rate
+### 3.3 Selection Uses Ids plus One Global Minimum Separation
 
-[DD-027](../../docs/design-decisions.md#dd-027). State is per-uid, not a bare set:
+[DD-027](../../docs/design-decisions.md#dd-027). The selector loads
+`selection.default_min_separation_ms` from YAML at startup; the web interface can
+override that global value at runtime by sending a nonzero
+`ValueRequest.period_ms`. Selected ids are per-uid; separation is global:
 
 ```cpp
 struct TagState {
-    uint32_t period_ms {0};                                  // 0 = every sample
     std::chrono::steady_clock::time_point last_emitted {};
 };
+uint32_t min_separation_ms {default_min_separation_ms};
 ```
 
 Four defaults, all reversible, all stated because each has a wrong-looking
@@ -236,7 +239,7 @@ alternative that seems obvious:
 |---|---|---|
 | **Decimate on arrival** | Timer-driven emit | O(1) per sample, no timers, and naturally correct when the source is slower than the requested rate. A timer spaces output more evenly but must hold samples and wake up — not worth it for display data. |
 | **`steady_clock`** | The payload's `valueTime` | Source stamps may be irregular or skewed. The decimation decision is about *our* output cadence, not the field's. |
-| **`period_ms == 0` = every sample** | `0` = never | An unset rate degrades to plain selection, not to silence. |
+| **`period_ms == 0` = selector YAML default** | `0` = every sample | The startup default is operational config; runtime messages only override the global setting when nonzero. Set the YAML default to `0` if every sample is desired. |
 | **Latest sample wins** | Oldest, or aggregate | Display data: the freshest value is the useful one. Nothing is averaged — that would be a model change (§3.2). |
 
 The rate axis is not a nicety. It is what keeps the volume reaching scada-web's
@@ -332,10 +335,10 @@ recorded:
   re-drives the full active set. The selector does not ask; it just starts empty.
 
 [OQ-17](../../docs/questions.md#oq-17) and [OQ-24](../../docs/questions.md#oq-24) would retire both by
-making the request topic `@key uid` + `{enabled, period_ms}` +
-`TRANSIENT_LOCAL`, which is idempotent and lets a restarted selector recover its
-whole subscription set from the middleware. Adding `period_ms` did not take that
-step, so **both consequences stand today.**
+making the request topic keyed desired state plus durable global configuration,
+which is idempotent and lets a restarted selector recover its whole subscription
+set from the middleware. Adding `period_ms` did not take that step, so **both
+consequences stand today.**
 
 **And under [DD-029](../../docs/design-decisions.md#dd-029) that stays true on both
 sides of the boundary — the title needs no further qualification.** An earlier draft
@@ -359,24 +362,25 @@ selector is one Connext-owned cache on the **field** side:
   from the sim — which is reliable and durable — so there is no separate recovery
   code and no window where the selector has forgotten the catalogue while running.
 
-This is strictly simpler than the durable-writer design it replaces: one cache
-instead of two, no durability on the web side, and no "empty catalogue during a
-selector restart" window to reason about. What it costs is that scada-web must
-**ask** rather than merely subscribe — and must retry until its map is populated,
-which is the property a best-effort reply needs in order to be trustworthy.
+This keeps catalogue state middleware-owned on both hops: the selector reads the
+field catalogue from a durable reader cache and republishes it on a durable
+presentation writer. scada-web can subscribe and receive the latest catalogue
+sample per uid after a restart.
 
-### 3.7 Configuration Is Flags, Not YAML
+### 3.7 Configuration Is YAML for Defaults, Flags for Overrides
 
 scada-web reads YAML because its topology is discovered and its views are
 declarative. The selector's topology is **five entities, fixed forever**: readers
 on `IdValue`, `MetaData`, and `ValueRequest`; writers on `SelectedValue` and
-`SelectedMetaData`. A config file for that is ceremony.
+`SelectedMetaData`. YAML is still useful for startup defaults that operators tune,
+especially `selection.default_min_separation_ms`.
 
 So: CLI flags (`--field-domain`, `--web-domain`, `--value-topic`,
 `--selected-topic`, `--metadata-topic`, `--selected-metadata-topic`,
 `--request-topic`, `--qos-file`, `--verbosity`) with the topic names from
-[system-architecture.md](../../docs/system-architecture.md) §4 as defaults, plus an optional
-QoS provider XML for the profiles in §6. Two domain flags rather than one because
+[system-architecture.md](../../docs/system-architecture.md) §4 as defaults, plus
+[scada_select/config.yaml](../config.yaml) for operational defaults and QoS
+profile paths. Two domain flags rather than one because
 of §3.8; setting both to the same value is the single-domain deployment.
 
 **The IDL is copied into `idl/`, and that is a real duplication** of
@@ -489,9 +493,9 @@ notes on the two-domain case:
 4. Field side:  IdValue reader     — RELIABLE, matches the sim's writer QoS
                 MetaData reader    — RELIABLE + TRANSIENT_LOCAL + KEEP_LAST 1
 5. Web side:    ValueRequest reader   — RELIABLE + KEEP_ALL   (DD-023, the exception)
-                SelectedValue writer  — BEST_EFFORT + VOLATILE + KEEP_LAST  (DD-029)
+                SelectedValue writer  — RELIABLE + TRANSIENT_LOCAL + KEEP_LAST 1
                 SelectedMetaData writer
-                                  — BEST_EFFORT + VOLATILE + KEEP_LAST 1
+                                  — RELIABLE + TRANSIENT_LOCAL + KEEP_LAST 1
 6. Attach ReadConditions to one WaitSet: control, then metadata, then data
 7. dispatch() loop until SIGINT/SIGTERM
 ```
@@ -501,12 +505,9 @@ and turns tags on as requests arrive, `IdValue` is `VOLATILE` so there is no bac
 to mis-handle, and `MetaData` is `RELIABLE` + `TRANSIENT_LOCAL` on the field hop so
 a selector that starts after the sim still receives the whole catalogue.
 
-**Start order versus scada-web does matter, and only for the catalogue.** Because
-the web side is `BEST_EFFORT` ([DD-029](../../docs/design-decisions.md#dd-029)), a
-scada-web that starts after the selector receives no history — it gets values within
-one publish period, since values are periodic, but the catalogue is written once and
-will not come round again. That is what makes the catalogue request-driven (§4.4):
-scada-web asks when it is ready, and retries until its map is populated.
+**Start order versus scada-web does not require request replay for selected
+values or metadata.** Both presentation streams are RELIABLE + TRANSIENT_LOCAL,
+so a late-joining scada-web receives the latest sample per uid by subscribing.
 
 **Order within the WaitSet: control, metadata, data.** Control first for the
 reason in §3.5. Metadata before data is a weaker preference — it means a tag's
@@ -516,14 +517,14 @@ scada-web a "value for an unknown uid" transient it would otherwise have to hold
 ### 4.2 Control-Plane Flow
 
 ```
-scada-web: interest 0→1 for uid=5 at 250ms
+scada-web: interest 0→1 for uid=5; global separation is 250ms
     │
     ▼  write ValueRequest{uid=5, command=ADD, period_ms=250}
 DDS (PLC::ValueRequest, RELIABLE + KEEP_ALL)
     │
     ▼  request_reader.take()  — DataState::any(), so lifecycle is visible too
 ControlPlane
-    │  ADD      → table[uid].period_ms = period_ms  (re-ADD updates the rate)
+  │  ADD      → table.add(uid); if period_ms != 0, update global separation
     │  DELETE   → table.erase(uid)
     │  METADATA → re-publish MetaData for uid       (§4.4 — now implemented here)
     ▼
@@ -605,9 +606,8 @@ metadata_reader.read()        ← read(), NOT take() — see below
     │
     ▼  selected_metadata_writer.write(data())
     │
-    ▼  PLC::SelectedMetaData (BEST_EFFORT + VOLATILE — DD-029)
+    ▼  PLC::SelectedMetaData (RELIABLE + TRANSIENT_LOCAL)
 scada-web: uid→metadata map  (its own state, DD-024 unchanged)
-           retries what it did not get
 ```
 
 **The request path is the bootstrap path, not a fallback.** This inverts what an
@@ -728,8 +728,8 @@ because it runs the process; the web side is not, because it draws pictures of i
 | Field | `PLC::IdValue` | Read (data in) | `IdValue` | `RELIABLE` | `VOLATILE` | `KEEP_LAST`, shallow |
 | Field | `PLC::MetaData` | Read (catalogue in) | `MetaData` | `RELIABLE` | **`TRANSIENT_LOCAL`** | `KEEP_LAST 1` |
 | Web | `PLC::ValueRequest` | Read (control in) | `ValueRequest` | **`RELIABLE` + `KEEP_ALL`** — the exception | `VOLATILE` | `KEEP_ALL` |
-| Web | `PLC::SelectedValue` | Write (data out) | `IdValue` | **`BEST_EFFORT`** | `VOLATILE` | `KEEP_LAST` |
-| Web | `PLC::SelectedMetaData` | Write (catalogue out) | `MetaData` | **`BEST_EFFORT`** | `VOLATILE` | `KEEP_LAST 1` |
+| Web | `PLC::SelectedValue` | Write (data out) | `IdValue` | **`RELIABLE`** | `TRANSIENT_LOCAL` | `KEEP_LAST 1` |
+| Web | `PLC::SelectedMetaData` | Write (catalogue out) | `MetaData` | **`RELIABLE`** | `TRANSIENT_LOCAL` | `KEEP_LAST 1` |
 
 Four QoS choices worth arguing rather than inheriting:
 
@@ -815,9 +815,8 @@ progress available in the project.
 | Integration | Rate limiting works | Same, with `period_ms` set; measure observed output period against requested |
 | Integration | Lifecycle passthrough | Dispose a `uid` upstream; confirm the notification arrives on `SelectedValue` **immediately**, not at the next tick |
 | Integration | Catalogue crosses the boundary | `rtiddsspy` on `PLC::SelectedMetaData` with the sim running: every tag present, unfiltered by the selection table (§4.4) |
-| Integration | Late-joining scada-web | Start sim → selector → *then* the subscriber. Confirm the **negative** result first: with no request, the catalogue does **not** arrive (best-effort, no durability — DD-029). Then confirm the sentinel `METADATA` request delivers it in full |
-| Integration | Catalogue bootstrap is retryable | Drop or ignore the first reply; confirm a second request repopulates. This is what makes a best-effort reply trustworthy (§4.4) |
-| Integration | Selector restart | Kill and restart the selector with the sim running; confirm the field-side catalogue is re-read and a subscriber that re-asks converges |
+| Integration | Late-joining scada-web | Start sim → selector → *then* the subscriber. Confirm `PLC::SelectedMetaData` delivers the latest catalogue samples from transient-local history |
+| Integration | Selector restart | Kill and restart the selector with the sim running; confirm the field-side catalogue is re-read and selected metadata is republished |
 | Integration | `METADATA` command | Send `Command_t::METADATA` for one uid; confirm exactly that instance is republished. Then the sentinel uid; confirm the whole catalogue (§4.2) |
 | Integration | Lost dispose | Force loss of a forwarded dispose; confirm scada-web's **staleness timeout** catches it, since the retraction will not be repeated (§3.4) |
 | **Boundary** | **No upstream backpressure** | Stall or SIGSTOP the `SelectedValue` subscriber under load; confirm field-side reception at the selector is **unchanged** — inbound rate and cache occupancy flat, drops attributed outbound. Under DD-029 this should pass trivially, since a best-effort writer cannot block; run it anyway, because it is what would catch reliability being raised on this side later |
@@ -894,7 +893,7 @@ Future work, in rough order of value:
 ## 10. Sources
 
 - [system-architecture.md](../../docs/system-architecture.md) §1a, §2, §4, §7, §9 — roles, topology, contracts, build order
-- [scada-selector-implementation.md](scada-selector-implementation.md) — CMake, generated type shape, verified selector core, rate control, what "efficient" buys
+- [scada-selector-implementation.md](scada-selector-implementation.md) — CMake, generated type shape, verified selector core, minimum-separation control, what "efficient" buys
 - [architecture-comparison.md](../../docs/architecture-comparison.md) — why Routing Service is not used
 - [design-decisions.md](../../docs/design-decisions.md) — [DD-023](../../docs/design-decisions.md#dd-023), [DD-024](../../docs/design-decisions.md#dd-024), [DD-026](../../docs/design-decisions.md#dd-026), [DD-027](../../docs/design-decisions.md#dd-027), [DD-028](../../docs/design-decisions.md#dd-028), [DD-029](../../docs/design-decisions.md#dd-029)
 - [Ensuring Information is Available to Late-Joining Applications](https://community.rti.com/static/documentation/connext-dds/7.7.0/doc/manuals/connext_dds_professional/users_manual/users_manual/Ensuring_Information_is_Available_to_Lat.htm) and [KB: Why does my DataReader miss the first few samples?](https://community.rti.com/kb/why-does-my-dds-datareader-miss-first-few-samples) — **`TRANSIENT_LOCAL` late-joiner delivery requires `RELIABLE` on both writer and reader.** Verified via Connext AI; this is what makes the §4.4 catalogue request-driven rather than durable
