@@ -17,36 +17,46 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-from typing import Generator, List, Optional
+from typing import Generator, List
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SIM_SCRIPT = REPO_ROOT / "sim" / "plc_publisher.py"
-SELECTOR_BIN = REPO_ROOT / "scada_select" / "build" / "scada_selector"
+SIM_SCRIPT = REPO_ROOT / "scripts" / "start-sim.sh"
+SELECTOR_SCRIPT = REPO_ROOT / "scripts" / "start-select.sh"
+WEB_SCRIPT = REPO_ROOT / "scripts" / "start-web.sh"
 SCADA_WEB_CONFIG = REPO_ROOT / "scada_web" / "config.yaml"
 SCADA_WEB_HOST = "127.0.0.1"
 SCADA_WEB_PORT = 8765  # Test port to avoid clashing with dev server
 
-# RTI Connext license — auto-detect if not already set in env
-_LICENSE_CANDIDATES = [
-    Path.home() / "rti_connext_dds-7.7.0" / "rti_license.dat",
-    Path.home() / "rti_connext_dds-7.6.0" / "rti_license.dat",
-    Path.home() / "rti_connext_dds-7.3.1" / "rti_license.dat",
-    Path.home() / "rti_license.dat",
-]
 
-
-def _find_license() -> Optional[str]:
+# ─── RTI license auto-detect (mirrors scripts/start-*.sh find_license) ───────
+def _find_and_set_license() -> None:
+    """Discover RTI license file the same way the start scripts do."""
     if os.environ.get("RTI_LICENSE_FILE"):
-        return os.environ["RTI_LICENSE_FILE"]
-    for candidate in _LICENSE_CANDIDATES:
+        return  # already set
+
+    # Check NDDSHOME first
+    nddshome = os.environ.get("NDDSHOME", "")
+    if nddshome:
+        candidate = Path(nddshome) / "rti_license.dat"
         if candidate.exists():
-            return str(candidate)
-    return None
+            os.environ["RTI_LICENSE_FILE"] = str(candidate)
+            return
+
+    # Scan well-known locations (newest version first)
+    home = Path.home()
+    candidates = sorted(home.glob("rti_connext_dds-*/rti_license.dat"), reverse=True)
+    candidates += sorted(Path("/opt").glob("rti_connext_dds-*/rti_license.dat"), reverse=True)
+    candidates.append(home / "rti_license.dat")
+
+    for candidate in candidates:
+        if candidate.exists():
+            os.environ["RTI_LICENSE_FILE"] = str(candidate)
+            return
 
 
-RTI_LICENSE_FILE = _find_license()
+_find_and_set_license()
 
 
 def _wait_for_http(host: str, port: int, path: str = "/health",
@@ -72,8 +82,6 @@ def _start_process(cmd: List[str], label: str, env=None,
                    cwd=None) -> subprocess.Popen:
     """Start a subprocess, capturing stdout/stderr for diagnostics."""
     merged_env = {**os.environ, **(env or {})}
-    if RTI_LICENSE_FILE:
-        merged_env.setdefault("RTI_LICENSE_FILE", RTI_LICENSE_FILE)
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -105,9 +113,9 @@ def _stop_process(proc: subprocess.Popen, label: str, timeout: float = 5.0):
 
 @pytest.fixture(scope="session")
 def sim_process() -> Generator[subprocess.Popen, None, None]:
-    """Start the PLC simulator (publishes on domain 15)."""
+    """Start the PLC simulator (publishes on domain 15) via start script."""
     proc = _start_process(
-        ["python3", str(SIM_SCRIPT), "--domain-id", "15"],
+        ["bash", str(SIM_SCRIPT), "--domain-id", "15"],
         label="sim/plc_publisher",
     )
     # Allow time for MetaData (TRANSIENT_LOCAL) burst to complete
@@ -118,17 +126,13 @@ def sim_process() -> Generator[subprocess.Popen, None, None]:
 
 @pytest.fixture(scope="session")
 def selector_process(sim_process) -> Generator[subprocess.Popen, None, None]:
-    """Start scada_select (bridges domain 15 → 16).
+    """Start scada_select (bridges domain 15 → 16) via start script.
 
     Depends on sim_process so the field domain has data when selector starts.
     """
-    if not SELECTOR_BIN.exists():
-        pytest.skip(f"scada_selector binary not found at {SELECTOR_BIN}")
-    config_file = REPO_ROOT / "scada_select" / "config.yaml"
     proc = _start_process(
-        [str(SELECTOR_BIN), "--config", str(config_file)],
+        ["bash", str(SELECTOR_SCRIPT)],
         label="scada_select",
-        cwd=REPO_ROOT / "scada_select" / "build",
     )
     time.sleep(2.0)
     yield proc
@@ -137,14 +141,14 @@ def selector_process(sim_process) -> Generator[subprocess.Popen, None, None]:
 
 @pytest.fixture(scope="session")
 def scada_web_process(selector_process) -> Generator[subprocess.Popen, None, None]:
-    """Start the scada_web FastAPI server on the test port.
+    """Start the scada_web FastAPI server on the test port via start script.
 
     Depends on selector_process so the presentation domain is populated
     (sim → selector → domain 16 → scada_web readers).
     """
     proc = _start_process(
         [
-            "python3", "-m", "scada_web",
+            "bash", str(WEB_SCRIPT),
             "--config", str(SCADA_WEB_CONFIG),
             "--host", SCADA_WEB_HOST,
             "--port", str(SCADA_WEB_PORT),
