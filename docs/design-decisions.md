@@ -2011,3 +2011,36 @@ fail. The shared-XML constraint (DD-043) is the real invariant.
 **Revisit if.** The system must interoperate with Connext < 6.x or with
 TypeObject propagation disabled, in which case registered type names must
 match explicitly.
+
+---
+
+### DD-051
+**Two select calls for metadata: `NOT_READ` for arrival, `ANY` for commands.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-48](questions.md#oq-48) · **Affects:** scada-selector metadata plane
+
+**Decision.** The metadata reader uses two distinct select calls:
+1. Arrival path: `select().state(NOT_READ).read()` — forwards each sample
+   exactly once on arrival.
+2. Command path: `select().state(ANY).instance(handle).read()` — re-reads
+   the cached KEEP_LAST(1) value for a specific instance (or all instances
+   for the sentinel) regardless of sample state, and republishes it.
+
+The selector keeps the sample in cache (KEEP_LAST(1) + `read()` not `take()`)
+so it is always available for republish on demand.
+
+**Context.** Metadata is TRANSIENT_LOCAL/KEEP_LAST(1). Each instance has
+exactly one sample in the cache. The arrival path must not re-forward old
+data; the command path must return data that has already been read. DDS
+sample-state selectors are the native mechanism for this distinction.
+
+**Alternatives.** (b) Single `any_sample_state()` path with application-level
+“already forwarded” tracking — rejected because it reimplements what DDS
+sample-state already provides.
+
+**Consequences.** Two read call sites in the metadata handler, each a
+one-liner with a different DataState selector. No additional application
+state. `read()` (not `take()`) ensures the cache always holds the last value.
+
+**Revisit if.** Metadata QoS changes to KEEP_ALL (multiple samples per
+instance), requiring per-sample forwarding tracking.

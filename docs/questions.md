@@ -100,7 +100,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-45](#oq-45) | Selector graceful-shutdown contract: dispose own instances? | DECIDED → [DD-049](design-decisions.md#dd-049) | MEDIUM | DG | Downstream disconnect detection |
 | [OQ-46](#oq-46) | `SelectedValue` topic type registration name — must match `IdValue`? | DECIDED → [DD-050](design-decisions.md#dd-050) | MEDIUM | DG | Discovery, scada-web reader setup |
 | [OQ-47](#oq-47) | Selector liveness detection from scada-web | OPEN | LOW | DG | Distinguishing "no updates" from "selector gone" |
-| [OQ-48](#oq-48) | `METADATA` on-demand re-read uses `any_sample_state()`, not `new_data()`? | OPEN | MEDIUM | DG | METADATA command returning empty |
+| [OQ-48](#oq-48) | `METADATA` on-demand re-read uses `any_sample_state()`, not `new_data()`? | DECIDED → [DD-051](design-decisions.md#dd-051) | MEDIUM | DG | METADATA command returning empty |
 | [OQ-49](#oq-49) | Throttle on `METADATA(ALL)` requests to prevent catalogue spam? | OPEN | LOW | DG | Selector CPU under misbehaving client |
 | [OQ-50](#oq-50) | `mapping.py` module referenced in `__init__.py` but never created | DECIDED → [DD-045](design-decisions.md#dd-045) | HIGH | DG | View projection dead code path |
 | [OQ-51](#oq-51) | Gateway `_read_loop` fires `on_sample` callback synchronously in async context | DECIDED → [DD-047](design-decisions.md#dd-047) | HIGH | DG | Event-loop starvation under load |
@@ -1864,9 +1864,12 @@ about detecting that the entire upstream is absent.
 ### OQ-48
 **`METADATA` on-demand re-read: must use `any_sample_state()`, not `new_data()`**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** METADATA command potentially returning empty results
 - **Raised:** 2026-07-27 (scada-select architecture review)
+- **Decision:** 2026-07-27 — [DD-051](design-decisions.md#dd-051). Option (a): two select
+  calls. Arrival path uses `NOT_READ`; command path uses `any_sample_state()` +
+  instance selection to re-read and republish the cached value.
 
 **Context.** §4.4 says the metadata plane uses `read()` with
 `new_data()`/`NOT_READ` state to forward each sample exactly once on arrival while
