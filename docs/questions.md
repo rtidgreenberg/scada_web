@@ -98,7 +98,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-43](#oq-43) | What concrete value is the `METADATA` sentinel uid? | DEFERRED — phase 0 uses preset range (DD-039) | MEDIUM | DG | Catalogue bootstrap, IDL contract |
 | [OQ-44](#oq-44) | What happens if `key_value()` is called on a purged instance handle? | DECIDED → [DD-048](design-decisions.md#dd-048) | MEDIUM | DG | Lifecycle forwarding correctness |
 | [OQ-45](#oq-45) | Selector graceful-shutdown contract: dispose own instances? | DECIDED → [DD-049](design-decisions.md#dd-049) | MEDIUM | DG | Downstream disconnect detection |
-| [OQ-46](#oq-46) | `SelectedValue` topic type registration name — must match `IdValue`? | OPEN | MEDIUM | DG | Discovery, scada-web reader setup |
+| [OQ-46](#oq-46) | `SelectedValue` topic type registration name — must match `IdValue`? | DECIDED → [DD-050](design-decisions.md#dd-050) | MEDIUM | DG | Discovery, scada-web reader setup |
 | [OQ-47](#oq-47) | Selector liveness detection from scada-web | OPEN | LOW | DG | Distinguishing "no updates" from "selector gone" |
 | [OQ-48](#oq-48) | `METADATA` on-demand re-read uses `any_sample_state()`, not `new_data()`? | OPEN | MEDIUM | DG | METADATA command returning empty |
 | [OQ-49](#oq-49) | Throttle on `METADATA(ALL)` requests to prevent catalogue spam? | OPEN | LOW | DG | Selector CPU under misbehaving client |
@@ -1806,9 +1806,13 @@ a "going away" heartbeat) before stopping the dispatch loop?
 ### OQ-46
 **`SelectedValue` topic reuses the `IdValue` type — what type name is registered?**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
 - **Blocks:** Discovery between selector writer and scada-web reader
 - **Raised:** 2026-07-27 (scada-select architecture review)
+- **Decision:** 2026-07-27 — [DD-050](design-decisions.md#dd-050). Option (c): rely on
+  XTypes TypeObject structural matching. No registered-type-name coordination
+  needed. Both sides load from shared XML (DD-043); structural identity is
+  guaranteed.
 
 **Context.** The architecture says "the type on each output topic is the type on
 its input topic" — `IdValue` in, `IdValue` out — but the topic *name* changes

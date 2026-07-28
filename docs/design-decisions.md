@@ -1980,3 +1980,34 @@ loop and closing the participant.
 **Revisit if.** Detection latency of 5s is unacceptable for the use case, or
 multiple selectors are deployed and individual failure must be identified
 faster than lease expiry.
+
+---
+
+### DD-050
+**Rely on XTypes TypeObject structural matching; no type-name coordination.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-46](questions.md#oq-46) · **Affects:** system-architecture §4
+
+**Decision.** Topic compatibility between selector and scada-web relies on
+XTypes TypeObject structural matching. Both components load types from the
+shared `dds/idl/PlcValue.xml` (DD-043), guaranteeing structural identity.
+No `register_type()` aliasing or explicit type-name coordination is needed.
+The registered type name is not a matching criterion when TypeObject is
+available (Connext 7.x default).
+
+**Context.** `PLC::SelectedValue` uses the `IdValue` struct. Both sides
+get it from the same XML. Connext 7.7 propagates TypeObject v2 by default;
+matching uses structural assignability, not the registered name string.
+
+**Alternatives.** (a) Mandate identical registered type name — rejected
+because it adds a constraint the middleware doesn’t require and creates
+confusion about what actually drives matching. (b) Alias via
+`register_type()` — rejected as non-standard and misleading.
+
+**Consequences.** If TypeObject propagation is ever disabled (non-default),
+matching falls back to registered-type-name comparison and could silently
+fail. The shared-XML constraint (DD-043) is the real invariant.
+
+**Revisit if.** The system must interoperate with Connext < 6.x or with
+TypeObject propagation disabled, in which case registered type names must
+match explicitly.
