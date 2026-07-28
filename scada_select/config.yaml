@@ -1,0 +1,23 @@
+# scada-selector configuration
+#
+# Fixed DDS topology is controlled by domain/topic names and shared QoS profiles.
+# Domain IDs are defined in dds/idl/PlcValue.idl:
+#   PLC::FIELD_DOMAIN_ID = 15
+#   PLC::PRESENTATION_DOMAIN_ID = 16
+# Selection defaults are loaded at startup; the PERIOD command (ValueRequest union)
+# overrides the global minimum separation at runtime.
+
+qos_profiles: ../dds/qos/profiles.xml
+
+selection:
+  # Default minimum time between forwarded SelectedValue samples for one uid.
+  # The PERIOD command overrides this at runtime when period_ms is nonzero.
+  # Set to 0 to forward every selected field sample by default.
+  default_min_separation_ms: 250
+
+topics:
+  idvalue: "PLC::IdValue"
+  metadata: "PLC::MetaData"
+  selected_value: "PLC::SelectedValue"
+  selected_metadata: "PLC::SelectedMetaData"
+  value_request: "PLC::ValueRequest"

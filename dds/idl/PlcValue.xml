@@ -5,6 +5,8 @@
   <const name="MAX_STRING_VALUE_LENGTH" type="int32" value="32"/>
   <const name="MAX_HOSTNAME_LENGTH" type="int32" value="32"/>
   <const name="MAX_NAME_LENGTH" type="int32" value="32"/>
+  <const name="FIELD_DOMAIN_ID" type="int32" value="15"/>
+  <const name="PRESENTATION_DOMAIN_ID" type="int32" value="16"/>
   <typedef name="Hostname_t" stringMaxLength="PLC::MAX_HOSTNAME_LENGTH" type="string"/>
   <typedef name="Name_t" stringMaxLength="PLC::MAX_NAME_LENGTH" type="string"/>
   <typedef name="ValueTime_t" type="int64"/>

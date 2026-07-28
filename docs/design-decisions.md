@@ -69,13 +69,14 @@ a stated invalidation condition is a belief, and beliefs are what rot.
 | [DD-018](#dd-018) | Scope to a prototype PoC: no hardware targets, no embeddable library | ACCEPTED | OQ-9, OQ-10 |
 | [DD-019](#dd-019) | PoC uses the simplest workable concurrency model | ACCEPTED | — |
 | [DD-020](#dd-020) | Four-component system; scada-selector owns key-based selection | ACCEPTED | — |
-| [DD-021](#dd-021) | scada-selector enriches values with MetaData; join stays out of the engine | ACCEPTED | OQ-4 |
+| [DD-021](#dd-021) | scada-selector enriches values with MetaData; join stays out of the engine | SUPERSEDED by DD-024 | OQ-4 |
 | [DD-022](#dd-022) | Thread-per-connection is correct for this system, not just for the PoC | ACCEPTED | — |
 | [DD-023](#dd-023) | `ValueRequest` must be RELIABLE + KEEP_ALL | ACCEPTED | — |
 | [DD-024](#dd-024) | Selection and presentation are separate roles; metadata lookup belongs to presentation | ACCEPTED | supersedes DD-021 |
 | [DD-025](#dd-025) | Enable/disable ids over the in-band DDS topic, not Routing Service remote administration | ACCEPTED | — |
 | [DD-026](#dd-026) | scada-selector uses compiled types — which rules out a Routing Service Processor | ACCEPTED | OQ-23 (Role 1) |
-| [DD-027](#dd-027) | scada-selector downrates per id; scada-web relays ids **and rate** | ACCEPTED | — |
+| [DD-027](#dd-027) | scada-selector downrates per id; scada-web relays ids, selector handles **rate** via PERIOD command | ACCEPTED | — |
+| [DD-045](#dd-045) | `mapping.py` applies WIS-compatible DynamicData→JSON transforms automatically | SUPERSEDED by DD-052/DD-053 | OQ-50, OQ-54, OQ-58 |
 | [DD-052](#dd-052) | scada-web uses Python generated types, not DynamicData | ACCEPTED | — |
 | [DD-053](#dd-053) | Field mapping is Python code, not config | ACCEPTED | — |
 
@@ -113,13 +114,14 @@ complaint, in which case add a convenience layer — do not replace this model.
 ### DD-002
 **Operate on `DynamicData` throughout; require no generated type support code.**
 
-- **Status:** SUPERSEDED by [DD-052](#dd-052) — **scoped to scada-web (Role 2)** by [DD-026](#dd-026)
+- **Status:** SUPERSEDED by [DD-052](#dd-052)
 - **Date:** 2026-07-27 · **Amended:** 2026-07-27 · **Affects:** FR-DDS-006, FR-TYPE-001
 
-> **Scope amendment.** This applies to **scada-web only**. scada-selector uses
-> compiled types for the opposite and equally good reason (DD-026). The two roles
-> have deliberately opposite type strategies: Role 2 must handle types it has
-> never seen, Role 1 handles one known type as fast as possible.
+> **Superseded.** This was the original generic-gateway premise. DD-026 already
+> chose compiled C++ types for scada-selector; DD-052 later rejected DynamicData
+> for scada-web as well, because this SCADA system has a fixed commissioned data
+> model. The reasoning below is historical context, not current implementation
+> guidance.
 
 **Decision.** All DDS interaction **in scada-web** uses
 `dds::core::xtypes::DynamicData` and `DynamicType`. The service is never rebuilt
@@ -716,9 +718,10 @@ key-based selection.**
 **Decision.** The deliverable is four components: **scada-sim** (exists, Python,
 Level 0/1), **scada-selector** (new, Level 2), **scada-web** (the gateway), and a
 **browser interface**. scada-selector subscribes to a `ValueRequest` command topic
-carrying `ADD`/`DELETE`/`METADATA` for a `uid`, maintains the set of enabled
-uids, and republishes only those onto an output topic. scada-web holds exactly one
-reader and one writer against it, regardless of client count.
+carrying `ADD`/`DELETE`/`METADATA`/`PERIOD` as a discriminated union, maintains the
+set of enabled uids and a global minimum separation, and republishes only those
+onto an output topic. scada-web holds exactly one reader and one writer against it,
+regardless of client count.
 
 **Context.** Direction from the project owner. The alternative — which the TRD
 implicitly assumed — was per-client content-filtered readers inside scada-web.
@@ -862,24 +865,23 @@ shape. Then DD-009 is reinstated as written.
 **Decision.** The `ValueRequest` topic uses `RELIABLE` reliability with
 `KEEP_ALL` history on both writer and reader. Not `KEEP_LAST`.
 
-**Context.** `ValueRequest` has no `@key` in
-[dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl), so every command lands on a single
-instance. Under `KEEP_LAST depth=1` — the QoS the sim uses for its other
-topics — a writer may replace an unacknowledged sample with a newer one.
+**Context.** `ValueRequest` is a discriminated union switched on `Command_t`
+([dds/idl/PlcValue.idl](../dds/idl/PlcValue.idl)), with no `@key`, so every command
+lands on a single instance. Under `KEEP_LAST depth=1` — the QoS the sim uses for
+its other topics — a writer may replace an unacknowledged sample with a newer one.
 `RELIABLE` guarantees the *latest* sample is delivered, not that every sample is.
 So a burst of `ADD(1) ADD(2) ADD(3)` can silently lose the first two.
 
 This is a command stream, where every message carries distinct intent and none is
 superseded by the next. It needs `KEEP_ALL`.
 
-**Alternatives.** (a) Add `@key uid` to `ValueRequest`, making each uid its own
-instance so `KEEP_LAST depth=1` retains one command per uid. Genuinely tempting
-and arguably the better data model — but the keyed semantics are subtly wrong,
-because `ADD(5)` followed quickly by `DELETE(5)` would have the DELETE replace
-the ADD on the same instance, which happens to be the right outcome here but only
-by luck. Changing the IDL also touches the sim. Worth considering if the IDL is
-open to revision. (b) Batching commands into one sample — a sequence of requests
-rather than one per sample. Reduces exposure but does not remove it.
+**Alternatives.** (a) Key the union by discriminator or uid — a `@key`-ed
+approach so `KEEP_LAST depth=1` retains one command per uid. Genuinely tempting
+but the semantics are subtly wrong for a union: `ADD(5)` followed quickly by
+`DELETE(5)` would have the DELETE replace the ADD on the same instance, which
+happens to be the right outcome but only by luck. (b) Batching commands into one
+sample — a sequence of requests rather than one per sample. Reduces exposure but
+does not remove it.
 
 **Verified against Connext 7.7.0 documentation.** Under `KEEP_LAST`, when an
 instance already holds `depth` samples the DataWriter replaces the oldest
@@ -1134,67 +1136,60 @@ free infrastructure with it, becomes available again.
 ---
 
 ### DD-027
-**scada-selector downrates per id; scada-web relays selected ids *and* the
-requested rate.**
+**scada-selector selects ids and applies one global minimum separation.**
 
 - **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** DD-002, DD-020, DD-024, DD-025, OQ-17, OQ-24, system-architecture §1a, §4.1
 
-**Decision.** Role 1 is **selection in two dimensions — which tags, and how
-often.** scada-web sends both: the set of enabled uids and, per uid, the rate it
-wants. scada-selector enforces both, absorbing the full-rate stream with compiled
-types and emitting a decimated one. It still makes **no data-model change** — the
-output type is the input type.
+**Decision.** Role 1 is **selection plus global downrating**. scada-web sends the
+set of enabled uids and the current global minimum separation. scada-selector
+enforces both, absorbing the full-rate stream with compiled types and emitting a
+decimated one. It still makes **no data-model change** — the output type is the
+input type.
 
 **Context — the field finding this answers.** Batched reception of small samples
-into a `DynamicData` DataReader degrades measurably. The mechanism is documented:
-Connext does **not** keep a batch as a unit in the reader queue — each sample in a
-batch is deserialized and processed individually. Batching therefore reduces
-network overhead without reducing per-sample receive cost, and for `DynamicData`
-that per-sample cost is materially higher than for a generated type, because the
-sample is deserialized into a reflective representation rather than a compile-time
-layout. A batch of many tiny samples concentrates that cost into a burst.
+can still concentrate work into bursts: Connext does **not** keep a batch as a
+unit in the reader queue — each sample in a batch is deserialized and processed
+individually. Batching reduces network overhead without reducing per-sample
+application work. A display tier then adds view mapping, JSON serialization, and
+browser fan-out on top of the DDS receive cost.
 
-That is a direct threat to [DD-002](#dd-002), which keeps scada-web on
-`DynamicData` — necessarily, since the mapping engine operates on type descriptors
-rather than C++ structs, and without it there is no mapping engine.
+The selector is the mitigation. It sits where the high-rate batched stream
+arrives, handles it with compiled types (DD-026), and emits a stream reduced on
+**both** axes before scada-web sees it:
 
-**Why DD-002 survives.** The selector is the mitigation. It sits where the
-high-rate batched stream arrives, handles it with compiled types (DD-026), and
-emits a stream that has been reduced on **both** axes before any `DynamicData`
-reader sees it:
-
-| | Reduction | Effect on the downstream DynamicData reader |
+| | Reduction | Effect on the downstream presentation path |
 |---|---|---|
 | Tags | Only enabled uids | Fewer instances |
-| Rate | Per-uid decimation | Fewer samples per instance per second |
+| Rate | Global minimum separation | Fewer samples per instance per second |
 
 The two multiply. An operator display showing 200 of 5,000 tags at 1 Hz, from a
 source publishing all 5,000 at 50 Hz, is a reduction of three orders of magnitude
-before `DynamicData` is involved at all. **The expensive representation is used
-only where the volume is small, and the cheap one only where it is large** — which
-is the same principle as the type split in DD-026, applied to rate.
+before the web gateway, JSON path, and browser see the data. DD-052 later removed
+`DynamicData` from scada-web, but the rate decision still stands: high-rate field
+traffic belongs upstream of the presentation tier.
 
 **Consequences.**
 
-*The IDL gained a rate field* — **applied 2026-07-27.** `ValueRequest` now carries
-`unsigned long period_ms` alongside `uid`, `name`, `command`:
+*The IDL was redesigned as a discriminated union* — **applied 2026-07-28.** `ValueRequest`
+is now a `Command_t`-discriminated union carrying case-specific payloads:
 
 ```idl
-struct ValueRequest {
-    UniqueId_t     uid;
-    Name_t         name;
-    Command_t      command;
-    unsigned long  period_ms;   // 0 = every sample; ADD only
+union ValueRequest switch (Command_t) {
+case ADD:
+    AddRequest_t     addRequest;   // {uid, name}
+case DELETE:
+case METADATA:
+    UniqueId_t       uid;
+case PERIOD:
+    PeriodRequest_t  periodRequest; // {period_ms}
 };
 ```
 
-Integer milliseconds rather than float Hz, so there is no rounding ambiguity about
-what rate was requested. `period_ms` applies to `ADD` and is ignored for `DELETE`
-and `METADATA`; re-sending `ADD` for an enabled uid updates its rate. Both
-derivations were regenerated and verified to agree — `rtiddsgen` produces
-`uint32_t period_ms`, and [sim/plc_types.py](../sim/plc_types.py) was updated to
-match (it hand-transcribes the IDL, exactly the drift risk
-[OQ-20](questions.md#oq-20) describes).
+The `PERIOD` case sets the selector's global minimum separation: `0` means use
+the selector YAML default, nonzero overrides the runtime setting. `ADD` enables
+forwarding for a uid; `DELETE` and `METADATA` operate on an existing uid. Integer
+milliseconds rather than float Hz, so there is no rounding ambiguity. The selector
+loads `selection.default_min_separation_ms` from YAML at startup.
 
 *This was the minimal change, not the fuller redesign.*
 [OQ-17](questions.md#oq-17) and [OQ-24](questions.md#oq-24) recommend going
@@ -1208,11 +1203,9 @@ questions rather than settled design.
 burst the downrating exists to remove, and buys little once volume is low. Batch
 the *input* side if the publisher benefits; leave the output unbatched.
 
-*Refcounting gains a dimension.* SR-001's per-uid refcount must now also resolve
-competing rates: two clients watching one tag at 1 Hz and 10 Hz means the selector
-should be told **the fastest requested rate**, with scada-web decimating further
-per client if it wants. Interest is `max(rate)` over interested clients, not a
-count.
+*Refcounting remains uid-only.* The minimum separation is global runtime state,
+not part of the per-client interest key. Changing it updates the selector for all
+active uids.
 
 *Rate semantics — recommended, not yet ratified:*
 - **Decimate on arrival**, not on a timer: keep a per-uid `last_emitted`, forward
@@ -1227,13 +1220,11 @@ count.
 - **Wall clock, not `valueTime`**, for the decimation decision — source timestamps
   may be irregular or skewed.
 
-**Revisit if.** Measurement shows scada-web's `DynamicData` path is still the
-bottleneck after downrating. Mitigations then, in order: reuse one `DynamicData`
-instance across `take(sample, info)` calls; tune `buffer_initial_size` with
-`trim_to_size = 0`; and only as a last resort reconsider DD-002 — which would mean
-giving up the mapping engine, so it is close to unthinkable.
-`skip_deserialization` is **not** available to us: it requires that the consumer
-not inspect fields, and inspecting fields is scada-web's entire job.
+**Revisit if.** Measurement shows the typed scada-web path — DDS receive, view
+mapping, JSON serialization, and WebSocket fan-out — is still the bottleneck after
+downrating. Mitigations then are batching/flow-control on the web side,
+additional decimation, or per-view sampling policy; do not move data-model work
+back into the selector to paper over presentation cost.
 
 ---
 
@@ -1376,15 +1367,17 @@ and the tag catalogue is served on request rather than by durability.**
 
 - **Status:** ACCEPTED · **Date:** 2026-07-27 · **Amends:** [DD-028](#dd-028) (QoS of the outbound topics) · **Affects:** DD-023, DD-027, OQ-25, OQ-26, SR-003, system-architecture §2, §4.3, §4.4, scada-select-architecture §3.4, §3.6, §3.8, §4.4, §6
 
-**Decision.** Everything scada-selector writes toward scada-web is
-`BEST_EFFORT` + `VOLATILE`:
+**Decision.** Dynamic value traffic on the field domain remains optimized for the
+sim/selector field hop. On the presentation domain, selected values and selected
+metadata both use `RELIABLE` + `TRANSIENT_LOCAL` so late-joining scada-web readers
+receive the latest sample per uid, including slow-changing values:
 
 | Side | Topic | Reliability | Durability |
 |---|---|---|---|
 | Field | `PLC::IdValue` | `RELIABLE` | `VOLATILE` |
 | Field | `PLC::MetaData` | `RELIABLE` | `TRANSIENT_LOCAL` |
-| Web | `PLC::SelectedValue` | **`BEST_EFFORT`** | `VOLATILE` |
-| Web | `PLC::SelectedMetaData` | **`BEST_EFFORT`** | `VOLATILE` |
+| Web | `PLC::SelectedValue` | **`RELIABLE`** | `TRANSIENT_LOCAL` |
+| Web | `PLC::SelectedMetaData` | **`RELIABLE`** | `TRANSIENT_LOCAL` |
 | Web | `PLC::ValueRequest` | **`RELIABLE` + `KEEP_ALL`** — the exception | `VOLATILE` |
 
 **The exception is deliberate and narrow.** `ValueRequest` carries operator intent
@@ -1396,9 +1389,10 @@ reader being `RELIABLE` cannot block the selector's dispatch thread; only writer
 block.
 
 **Context.** The field side runs the process and the web side draws pictures of
-it. A display that misses a frame is not a fault, and paying for retransmission on
-that path buys nothing while adding a queue that can fill. Values are periodic, so
-the next sample supersedes the lost one before a human could have acted on it.
+it. Some selected values update slowly enough that waiting for the next publish is
+not acceptable for late-joining scada-web readers. Presentation selected values
+therefore use `RELIABLE` + `TRANSIENT_LOCAL` with `KEEP_LAST(1)`: the latest value
+per uid is available without preserving an unbounded history.
 
 **This makes the DD-028 boundary invariant structural rather than disciplinary.**
 DD-028 required `KEEP_LAST` on outbound writers so that soft-side congestion could
@@ -1472,14 +1466,13 @@ do not design on it without checking.
 
 *[OQ-25](questions.md#oq-25)'s recommendation is reinforced.* Its option A —
 latest-value reads, `KEEP_LAST depth=1`, `read()` never `take()`, change
-notification by push — is exactly what a `BEST_EFFORT` current-value stream
-supports. Take-once queue semantics were already a poor fit; they are now
-untenable, which removes the last reason to keep the WIS polling surface.
+notification by push — is exactly what a durable current-value stream supports.
+Take-once queue semantics were already a poor fit; they are now untenable, which
+removes the last reason to keep the WIS polling surface.
 
-*A late-joining scada-web waits up to one publish period* for each tag's first
-value, since `VOLATILE` + `BEST_EFFORT` means no history. Acceptable: values are
-periodic. The catalogue does **not** have this property, which is why it is
-request-driven.
+*A late-joining scada-web receives the latest selected value per uid* because the
+presentation value stream is `RELIABLE` + `TRANSIENT_LOCAL` + `KEEP_LAST(1)`.
+This matters for values that do not update frequently.
 
 *Rate limiting is unaffected.* [DD-027](#dd-027) still does the volume reduction;
 `BEST_EFFORT` is about what happens to a sample in flight, not how many are sent.
@@ -1821,7 +1814,12 @@ not just isolation, and should be documented under OQ-22 as well.
 ### DD-045
 **`mapping.py` applies WIS-compatible DynamicData→JSON transforms automatically.**
 
-- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-50](questions.md#oq-50), [OQ-54](questions.md#oq-54), [OQ-58](questions.md#oq-58) · **Affects:** scada-web read path, browser binding
+- **Status:** SUPERSEDED by [DD-052](#dd-052) / [DD-053](#dd-053) · **Date:** 2026-07-27 · **Superseded:** 2026-07-28 · **Resolves:** [OQ-50](questions.md#oq-50), [OQ-54](questions.md#oq-54), [OQ-58](questions.md#oq-58) · **Affects:** scada-web read path, browser binding
+
+> **Superseded.** This was the DynamicData/WIS-compatible PoC path. The accepted
+> scada-web architecture now uses Python generated types and `views.py`
+> classmethods, so `mapping.py`, `DynamicData.to_json()`, and YAML `views:` are
+> historical context rather than current implementation guidance.
 
 **Decision.** `scada_web/mapping.py` uses `DynamicData.to_json()` (which already
 projects unions to the active branch only) then recursively converts `char[N]`
@@ -1858,20 +1856,27 @@ becomes the driver and OQ-6 (expression language) may reopen.
 - **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-52](questions.md#oq-52) (implements [OQ-37](questions.md#oq-37)) · **Affects:** gateway.py, plc_publisher.py, config.yaml
 
 **Decision.** A single QoS profiles XML (`dds/qos/profiles.xml`) defines two
-libraries: `sim::` (writer QoS for the field side) and `web::` (reader QoS for
-the presentation side). Each topic in `config.yaml` specifies a `qos_profile:`
-reference (e.g. `web::metadata`). The gateway loads profiles via `QosProvider`
-and applies them at reader creation. The sim uses the same file for writer QoS.
+libraries by DDS domain boundary: `field::` for field-domain endpoints and
+`presentation::` for presentation-domain endpoints. Each profile names a stream
+contract and contains both reader and writer QoS for that stream when both
+endpoints exist. The selector reads with `field::*` profiles on its field
+participant and writes with `presentation::*` profiles on its presentation
+participant.
+Each topic in `config.yaml` specifies a `qos_profile:` reference (for the current
+pre-selector PoC, `field::metadata` and `field::idvalue`). The
+gateway loads profiles via `QosProvider` and applies them at reader creation. The
+sim uses the same file for field-domain writer QoS.
 
 **Profiles:**
 
 | Library::Profile | Entity | Reliability | Durability | History |
 |---|---|---|---|---|
-| `sim::metadata` | DataWriter | RELIABLE | TRANSIENT_LOCAL | KEEP_LAST(1) |
-| `sim::idvalue` | DataWriter | RELIABLE | VOLATILE | KEEP_LAST(1) |
-| `web::metadata` | DataReader | RELIABLE | TRANSIENT_LOCAL | KEEP_LAST(1) |
-| `web::idvalue` | DataReader | BEST_EFFORT | VOLATILE | KEEP_LAST(1) |
-| `web::value_request` | DataWriter | RELIABLE | VOLATILE | KEEP_ALL |
+| `field::metadata` | DataWriter/DataReader | RELIABLE | TRANSIENT_LOCAL | KEEP_LAST(1) |
+| `field::idvalue` | DataWriter | RELIABLE | TRANSIENT_LOCAL | KEEP_LAST(10) |
+| `field::idvalue` | DataReader | RELIABLE | VOLATILE | KEEP_LAST(1) |
+| `presentation::selected_value` | DataWriter/DataReader | RELIABLE | TRANSIENT_LOCAL | KEEP_LAST(1) |
+| `presentation::selected_metadata` | DataWriter/DataReader | RELIABLE | TRANSIENT_LOCAL | KEEP_LAST(1) |
+| `presentation::value_request` | DataWriter/DataReader | RELIABLE | VOLATILE | KEEP_ALL |
 
 **Context.** OQ-37 decided the MetaData reader needs RELIABLE + TRANSIENT_LOCAL;
 OQ-52 noted the code never applied it. Rather than hardcoding QoS in Python (the
@@ -1896,13 +1901,15 @@ configuration or loaded via `NDDS_QOS_PROFILES` env var.
 ---
 
 ### DD-047
-**Replace poll loop with `rti.asyncio` WaitSet-backed `take_async`.**
+**Replace poll loop with `rti.asyncio` WaitSet-backed normal reads.**
 
 - **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-51](questions.md#oq-51) · **Affects:** [OQ-39](questions.md#oq-39), gateway.py
 
-**Decision.** The gateway uses `rti.asyncio`'s `take_async()` — one asyncio task
-per reader, each backed by a WaitSet that wakes only when data arrives. The 50 ms
-poll-sleep loop is removed.
+**Decision.** The gateway uses `rti.asyncio`'s WaitSet dispatcher — one asyncio
+task per reader, each waking only when data arrives — then performs a normal
+`reader.read()`. The 50 ms poll-sleep loop is removed, and samples remain in the
+DDS reader cache so REST calls can read the latest retained value after the
+callback path has already observed it.
 
 **Context.** The poll loop had three defects: `reader.take()` is a blocking call
 in the event loop thread; `on_sample()` dispatch is synchronous with no yield
@@ -1922,9 +1929,8 @@ synchronous within the asyncio thread; under extreme load a single reader's burs
 could still delay other tasks. Mitigation: yield every N samples if profiling
 shows starvation.
 
-**Revisit if.** Profiling shows `on_sample` dispatch within a single
-`take_async` batch exceeds 5 ms, or `rti.asyncio` is removed from the Connext
-Python distribution.
+**Revisit if.** Profiling shows `on_sample` dispatch within a single read batch
+exceeds 5 ms, or `rti.asyncio` is removed from the Connext Python distribution.
 
 ---
 

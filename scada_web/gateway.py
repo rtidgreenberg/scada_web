@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set
 
 import rti.connextdds as dds
-import rti.asyncio  # patches DataReader with take_async (WaitSet-backed)
+import rti.asyncio  # provides the WaitSet-backed asyncio dispatcher
 
 from .config import ScadaWebConfig, TopicConfig
 
@@ -129,12 +129,11 @@ class DdsGateway:
             topic = dds.DynamicData.Topic(dp, tc.name, dtype)
             subscriber = dds.Subscriber(dp)
 
-            # Resolve QoS: from profile XML if configured, else defaults
-            reader_qos = None
-            if tc.qos_profile and self._qos_provider:
-                reader_qos = self._qos_provider.datareader_qos_from_profile(
-                    tc.qos_profile)
-                logger.info("qos_applied topic=%s profile=%s", tc.name, tc.qos_profile)
+            if self._qos_provider is None:
+                raise RuntimeError("qos_profiles must be loaded before creating readers")
+            reader_qos = self._qos_provider.datareader_qos_from_profile(
+                tc.qos_profile)
+            logger.info("qos_applied topic=%s profile=%s", tc.name, tc.qos_profile)
 
             if tc.filter:
                 cft = dds.DynamicData.ContentFilteredTopic(
@@ -142,15 +141,9 @@ class DdsGateway:
                     f"{tc.name}_filtered",
                     dds.Filter(tc.filter.expression, tc.filter.parameters),
                 )
-                if reader_qos:
-                    reader = dds.DynamicData.DataReader(subscriber, cft, reader_qos)
-                else:
-                    reader = dds.DynamicData.DataReader(subscriber, cft)
+                reader = dds.DynamicData.DataReader(subscriber, cft, reader_qos)
             else:
-                if reader_qos:
-                    reader = dds.DynamicData.DataReader(subscriber, topic, reader_qos)
-                else:
-                    reader = dds.DynamicData.DataReader(subscriber, topic)
+                reader = dds.DynamicData.DataReader(subscriber, topic, reader_qos)
 
             self._topics[tc.name] = TopicRuntime(config=tc, topic=topic, reader=reader)
             logger.info("reader_created topic=%s type=%s", tc.name, dtype.name)
@@ -158,20 +151,27 @@ class DdsGateway:
     # ─── Internal: read loop ─────────────────────────────────────────────
 
     async def _reader_loop(self, topic_name: str, runtime: TopicRuntime) -> None:
-        """Async generator loop — wakes only when data arrives (WaitSet-backed)."""
+        """Async loop that reads samples without removing them from the cache."""
         reader = runtime.reader
         if reader is None:
             return
-        try:
-            async for data, info in reader.take_async():
-                if not info.valid:
-                    continue
-                if self.on_sample:
-                    self.on_sample(topic_name, data, info)
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            logger.exception("reader_loop_error topic=%s", topic_name)
+        condition = dds.ReadCondition(reader, dds.DataState.new_data)
+        dispatcher = rti.asyncio._get_default_dispatcher()
+        with dispatcher.register(condition) as wait_token:
+            try:
+                await dispatcher.wait(wait_token)
+                while True:
+                    for data, info in reader.read():
+                        if not info.valid:
+                            continue
+                        if self.on_sample:
+                            self.on_sample(topic_name, data, info)
+                    await dispatcher.wait(wait_token)
+            except asyncio.CancelledError:
+                dispatcher.waitset.detach_condition(wait_token.condition)
+                raise
+            except Exception:
+                logger.exception("reader_loop_error topic=%s", topic_name)
 
     # ─── Public query ────────────────────────────────────────────────────
 
@@ -183,3 +183,23 @@ class DdsGateway:
     def get_type(self, type_name: str) -> dds.DynamicType:
         """Public access to loaded types (for the REST type endpoint)."""
         return self._get_type(type_name)
+
+    def read_samples(self, topic_name: str) -> list[tuple[Any, Any]]:
+        """Read current samples for a topic without removing them from DDS cache."""
+        runtime = self._topics[topic_name]
+        reader = runtime.reader
+        if reader is None:
+            return []
+        return [(data, info) for data, info in reader.read() if info.valid]
+
+    def read_sample(self, topic_name: str, uid: int | None = None) -> tuple[Any, Any] | None:
+        """Read one current sample without removing it from DDS cache."""
+        for data, info in self.read_samples(topic_name):
+            if uid is None:
+                return data, info
+            try:
+                if data["uid"] == uid:
+                    return data, info
+            except Exception:
+                continue
+        return None

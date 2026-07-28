@@ -1,7 +1,7 @@
 # scada_web configuration
 #
-# Declares DDS participants, topic subscriptions, and view mappings.
-# Types are loaded from an XML type library generated from IDL.
+# Declares DDS participants and topic subscriptions for the pre-selector PoC.
+# Target topology moves this gateway to domain 16 (presentation) and selected topics only.
 # Pattern: references/act-sim-scope-infra/router/config/control-platform.yaml
 
 # --- XML type library ---
@@ -10,11 +10,19 @@ types:
   xml: dds/idl/PlcValue.xml
 
 # --- QoS profiles ---
-# Shared profiles for sim (writers) and web (readers).
+# Shared profiles grouped by DDS domain: field and presentation.
 qos_profiles: dds/qos/profiles.xml
 
+# --- Selection defaults ---
+# Initial global minimum separation for web-originated ADD requests. The selector
+# also has this value in its own YAML; browser/UI changes override it at runtime
+# by sending period_ms/min_separation_ms.
+selection:
+  default_min_separation_ms: 250
+
 # --- DDS participants ---
-# Each participant joins a domain and discovers endpoints on it.
+# Domain IDs are defined in dds/idl/PlcValue.idl (PLC::FIELD_DOMAIN_ID = 15,
+# PLC::PRESENTATION_DOMAIN_ID = 16). This gateway reads from the presentation domain.
 participants:
   plc_domain:
     domain: 15  # WIS participant uses DDS domain 15
@@ -25,7 +33,7 @@ topics:
   - name: "PLC::MetaData"
     participant: plc_domain
     type: "PLC::MetaData"
-    qos_profile: "web::metadata"
+    qos_profile: "field::metadata"
     # MetaData is TRANSIENT_LOCAL — we'll receive all tags even as a late joiner.
     #
     # NOTE (DD-028): this subscription is on the HARD REAL-TIME side, which the
@@ -37,23 +45,22 @@ topics:
     # and scada_web loses its field-side participant entirely. Same for
     # PLC::IdValue → PLC::SelectedValue below.
     #
-    # NOTE (DD-029): the web side is BEST_EFFORT + VOLATILE, so after that switch
-    # this topic delivers NO history to a late-joining scada_web. The catalogue must
-    # be requested: write ValueRequest{command=METADATA, uid=<all-sentinel>} and
-    # retry until the uid->metadata map is populated. Subscribing and waiting will
-    # hang forever with an empty catalogue. Values need no equivalent — they are
-    # periodic, so a late joiner waits at most one publish period.
+    # NOTE: metadata streams are TRANSIENT_LOCAL on both field and presentation
+    # domains, so late-joining readers receive the latest catalogue sample per uid.
+    # Values need no equivalent — they are periodic, so a late joiner waits at
+    # most one publish period.
 
   - name: "PLC::IdValue"
     participant: plc_domain
     type: "PLC::IdValue"
-    qos_profile: "web::idvalue"
+    qos_profile: "field::idvalue"
     # Periodic value stream. No filter — the selector (when built) will
     # pre-filter; for the PoC we receive everything.
 
-# --- View mappings ---
-# Project the wire DynamicData type down to a slim JSON view for web clients.
-# The mapping engine handles union projection, char-array→string, renaming.
+# --- Historical view mappings ---
+# DD-052/DD-053 supersede config-driven mapping for the typed SCADA gateway.
+# View mappings now live in scada_web/views.py. This section remains only as
+# legacy PoC input until config.py stops accepting it.
 views:
   - name: tag_value
     topic: "PLC::IdValue"

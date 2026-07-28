@@ -6,7 +6,7 @@ mapping layer that decouples the client view schema from the wire type.
 Architecture (Purdue model placement: Level 2 — supervisory):
     config      — YAML-driven declaration of participants, topics, types, mappings
     gateway     — DDS subscription manager; loads types from XML, creates readers at startup
-    interest    — per-client uid refcounting (ADD on 0→1, DELETE on 1→0)
+    interest    — per-client uid refcounting and global selector separation
     mapping     — wire DynamicData → slim view JSON (union projection, rename, flatten)
     server      — REST + WebSocket (FastAPI/uvicorn)
 """

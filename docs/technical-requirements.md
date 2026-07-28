@@ -12,6 +12,14 @@
 > are [PoC]. See [DD-018](design-decisions.md#dd-018) for what this scoping
 > does and does not change.
 
+> **Current PoC update (2026-07-28):** The accepted implementation path is now
+> the typed SCADA PoC in [implementation-plan.md](implementation-plan.md), using
+> Python generated types ([DD-052](design-decisions.md#dd-052)) and `views.py`
+> mappings ([DD-053](design-decisions.md#dd-053)). Older sections below that
+> describe a generic `DynamicData` mapping engine, XML runtime type loading, or a
+> WIS-compatible `/dds/rest1` path are retained as historical/product-direction
+> context, not the current PoC build order.
+
 **Scope of this document: the scada-web component only.** The deliverable is four
 components — scada-sim, scada-selector, scada-web, and a browser interface. See
 [system-architecture.md](system-architecture.md) for the system, the topic
@@ -292,7 +300,7 @@ arrays, no type synthesis, and no way to invoke it from a web API.
         └───────────────────────┬────────────────────────┘
                                 │
                     ┌───────────▼────────────┐
-                    │  Serialization Layer   │  DynamicData ⇄ JSON/CBOR/XML
+                    │  Serialization Layer   │  generated DDS samples ⇄ view JSON
                     └───────────┬────────────┘
                                 │
                     ┌───────────▼────────────┐
@@ -950,7 +958,7 @@ plumbing allows.
 |---|---|---|
 | **P0 — Spikes** | Expression language (OQ-6), **including union-typed comparison** (OQ-14); JSON losslessness for `Value_t` and `char[32]` (RISK-6); transformation cost shape (RISK-1). HTTP stack is now near-settled (OQ-5 → Boost.Beast). | Each question closed with measured data. Throwaway code. |
 | **P1 — Engine first** | Transformation engine standalone: **union-to-scalar projection (FR-XF-005) first**, then plan compiler, mapping evaluation, key semantics, invertibility classification, `scada-web-mapc` CLI. **No HTTP, no DDS domain.** | Round-trip property tests green (NFR-TEST-002); §6.5 covered; `Value_t` projected to JSON correctly including the `char[32]` string branch. |
-| **P2 — DDS plumbing** | DDS layer, Resource Manager, DynamicData ⇄ JSON, XML config incl. `<transformation_library>`. One reader on `SelectedValue`, one writer on `ValueRequest`; interest refcounting (system-architecture §5, SR-001…004). | A mapped view readable from a live domain, driven by real `ValueRequest` traffic against scada-selector. |
+| **P2 — DDS plumbing** | DDS layer, generated-type readers, `views.py` mapping, one reader on `SelectedValue`, one reader on `SelectedMetaData`, and one writer on `ValueRequest`; interest refcounting (system-architecture §5, SR-001…004). | A typed view readable from the web domain, driven by real `ValueRequest` traffic against scada-selector. |
 | **P3 — Web surface** | REST for entity setup and data; WebSocket bind/push; per-client demux (SR-004). Simplest workable concurrency model (DD-019, DD-022). | End-to-end demo: browser client consuming a mapped view that exists in no IDL, and writing back through it. **This is scada-web's part of the deliverable.** |
 | **P4 — Enough security to demo safely** | TLS, one authn mechanism, deny-by-default CORS, no default document root. | Demoable on a shared network without embarrassment. Not a security review. |
 | **Post-PoC** | Async I/O at scale (DD-009), full authz model (DD-013), observability (§7.4), WIS compat surface (DD-015), plugin ABI (DD-016), SDKs, join/split, hardware-gated performance. | — |

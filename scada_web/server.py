@@ -44,6 +44,7 @@ def create_app(config: ScadaWebConfig) -> FastAPI:
     _interest = InterestManager(
         on_add=_on_interest_add,
         on_delete=_on_interest_delete,
+        min_separation_ms=config.selection.default_min_separation_ms,
     )
     _gateway.on_sample = _on_dds_sample
 
@@ -90,6 +91,58 @@ async def get_topic_type(topic_name: str):
     return {"topic": topic_name, "type_name": dtype.name, "members": members}
 
 
+@app.get("/api/v1/topics/{topic_name}/samples")
+async def get_topic_samples(topic_name: str, uid: int | None = None):
+    """Return the current sample from the DDS reader cache without taking it."""
+    if not _gateway:
+        return JSONResponse({"error": "not started"}, status_code=503)
+    try:
+        sample = _gateway.read_sample(topic_name, uid)
+    except KeyError:
+        return JSONResponse({"error": f"unknown topic '{topic_name}'"},
+                            status_code=404)
+
+    if sample is None:
+        return {"topic": topic_name, "sample": None}
+
+    data, _info = sample
+    try:
+        sample_uid = data["uid"]
+    except Exception:
+        sample_uid = None
+    return {
+        "topic": topic_name,
+        "sample": {
+            "uid": sample_uid,
+            "data": _sample_to_dict(data),
+        },
+    }
+
+
+@app.get("/api/v1/topics/{topic_name}/samples/all")
+async def get_all_topic_samples(topic_name: str):
+    """Return one retained sample per key from the DDS reader cache."""
+    if not _gateway:
+        return JSONResponse({"error": "not started"}, status_code=503)
+    try:
+        samples = _gateway.read_samples(topic_name)
+    except KeyError:
+        return JSONResponse({"error": f"unknown topic '{topic_name}'"},
+                            status_code=404)
+
+    payload = []
+    for data, _info in samples:
+        try:
+            sample_uid = data["uid"]
+        except Exception:
+            sample_uid = None
+        payload.append({
+            "uid": sample_uid,
+            "data": _sample_to_dict(data),
+        })
+    return {"topic": topic_name, "samples": payload}
+
+
 # ─── WebSocket ───────────────────────────────────────────────────────────────
 
 
@@ -119,11 +172,49 @@ def _handle_ws_message(client_id: str, msg: dict[str, Any]) -> None:
     """Process a client command: subscribe/unsubscribe uids."""
     action = msg.get("action")
     if action == "subscribe":
-        for uid in msg.get("uids", []):
-            _interest.client_subscribe(client_id, int(uid))
+        period_ms = _parse_global_min_separation(msg)
+        if period_ms is not None:
+            _interest.set_min_separation(period_ms)
+        for item in msg.get("uids", []):
+            _interest.client_subscribe(client_id, _parse_uid(item))
     elif action == "unsubscribe":
-        for uid in msg.get("uids", []):
-            _interest.client_unsubscribe(client_id, int(uid))
+        for item in msg.get("uids", []):
+            _interest.client_unsubscribe(client_id, _parse_uid(item))
+    elif action in {"set_min_separation", "set_period"}:
+        period_ms = _parse_global_min_separation(msg)
+        if period_ms is None:
+            raise ValueError("period_ms/min_separation_ms is required")
+        _interest.set_min_separation(period_ms)
+
+
+def _parse_global_min_separation(msg: dict[str, Any]) -> int | None:
+    """Parse a message-level runtime minimum separation update."""
+    if "period_ms" in msg:
+        period_ms = int(msg["period_ms"])
+    elif "min_separation_ms" in msg:
+        period_ms = int(msg["min_separation_ms"])
+    else:
+        item_periods = {
+            int(item[key])
+            for item in msg.get("uids", [])
+            if isinstance(item, dict)
+            for key in ("period_ms", "min_separation_ms")
+            if key in item
+        }
+        if not item_periods:
+            return None
+        if len(item_periods) > 1:
+            raise ValueError("minimum separation is global; values must agree")
+        period_ms = item_periods.pop()
+    if period_ms < 0:
+        raise ValueError("period_ms/min_separation_ms must be >= 0")
+    return period_ms
+
+
+def _parse_uid(item: Any) -> int:
+    if isinstance(item, dict):
+        return int(item["uid"])
+    return int(item)
 
 
 # ─── Callbacks ───────────────────────────────────────────────────────────────
@@ -157,16 +248,17 @@ async def _ws_send(client_id: str, ws: WebSocket, payload: str) -> None:
         pass
 
 
-def _on_interest_add(uid: int) -> None:
-    """Interest 0→1: would send ValueRequest ADD to selector."""
-    logger.info("selector_add uid=%d", uid)
-    # TODO: write ValueRequest(uid, ADD) via a DDS DataWriter
+def _on_interest_add(uid: int, period_ms: int) -> None:
+    """Interest 0→1: send selector ADD command via ValueRequest union."""
+    logger.info("selector_add uid=%d period_ms=%d", uid, period_ms)
+    # TODO: write ValueRequest{ADD, addRequest={uid, name}} via DDS DataWriter
+    # If period_ms != current separation, also send PERIOD command
 
 
 def _on_interest_delete(uid: int) -> None:
-    """Interest 1→0: would send ValueRequest DELETE to selector."""
+    """Interest 1→0: send ValueRequest{DELETE, uid} to selector."""
     logger.info("selector_delete uid=%d", uid)
-    # TODO: write ValueRequest(uid, DELETE) via a DDS DataWriter
+    # TODO: write ValueRequest{DELETE, uid} via DDS DataWriter
 
 
 def _sample_to_dict(data: Any) -> dict[str, Any]:

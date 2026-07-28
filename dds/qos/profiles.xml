@@ -2,26 +2,23 @@
 <!--
   Shared QoS profiles for the SCADA PoC.
 
-  Two profile groups mirror the Purdue-model boundary:
-    - sim::  field-side (Level 0/1) writers
-    - web::  presentation-side (Level 2) readers
+  Profiles are grouped by DDS domain boundary, not by application role:
+    - field::         field domain streams (sim <-> selector field participant)
+    - presentation::  presentation domain streams (selector web participant <-> scada_web)
 
-  Convention: profile names match the topic role, not the topic name, so
-  the same profile works whether the topic is "PLC::MetaData" (direct) or
-  "PLC::SelectedMetaData" (via selector).
+  Each profile names a stream contract and contains both reader and writer QoS
+  for that stream when both endpoints exist. Applications choose the endpoint QoS
+  they need from the same profile name:
 
-  Usage from Python:
     provider = dds.QosProvider("dds/qos/profiles.xml")
-    qos = provider.datawriter_qos("sim::metadata")
-    qos = provider.datareader_qos("web::metadata")
+    writer_qos = provider.datawriter_qos_from_profile("field::idvalue")
+    reader_qos = provider.datareader_qos_from_profile("field::idvalue")
 -->
 <dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
      xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/current/rti_dds_qos_profiles.xsd">
 
-  <!-- ═══════════════════════════════════════════════════════════════════
-       sim:: — field-side writers (Level 0/1 → selector boundary)
-       ═══════════════════════════════════════════════════════════════════ -->
-  <qos_library name="sim">
+  <!-- field:: - field domain streams -->
+  <qos_library name="field">
 
     <!-- MetaData: state data pattern.
          Published once per tag at startup; late joiners must receive it.
@@ -40,11 +37,23 @@
           <depth>1</depth>
         </history>
       </datawriter_qos>
+      <datareader_qos>
+        <reliability>
+          <kind>RELIABLE_RELIABILITY_QOS</kind>
+        </reliability>
+        <durability>
+          <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+        </durability>
+        <history>
+          <kind>KEEP_LAST_HISTORY_QOS</kind>
+          <depth>1</depth>
+        </history>
+      </datareader_qos>
     </qos_profile>
 
-    <!-- IdValue: periodic value stream.
-         Published every scan cycle; no history needed.
-         RELIABLE + TRANSIENT_LOCAL + KEEP_LAST(10). -->
+    <!-- IdValue: periodic field value stream.
+         Writer retains a short transient window; readers keep only live current
+         values so diagnostics and selector field readers do not replay history. -->
     <qos_profile name="idvalue">
       <datawriter_qos>
         <reliability>
@@ -59,23 +68,42 @@
           <depth>10</depth>
         </history>
       </datawriter_qos>
+      <datareader_qos>
+        <reliability>
+          <kind>RELIABLE_RELIABILITY_QOS</kind>
+        </reliability>
+        <durability>
+          <kind>VOLATILE_DURABILITY_QOS</kind>
+        </durability>
+        <history>
+          <kind>KEEP_LAST_HISTORY_QOS</kind>
+          <depth>1</depth>
+        </history>
+      </datareader_qos>
     </qos_profile>
 
   </qos_library>
 
-  <!-- ═══════════════════════════════════════════════════════════════════
-       web:: — presentation-side readers (selector → scada-web boundary)
+  <!-- presentation:: - presentation domain streams -->
+  <qos_library name="presentation">
 
-       DD-029: web side is BEST_EFFORT except where noted.
-       DD-042: IdValue reader is BEST_EFFORT to avoid backpressure.
-       MetaData reader is the exception: RELIABLE + TRANSIENT_LOCAL to
-       receive the catalogue on late join.
-       ═══════════════════════════════════════════════════════════════════ -->
-  <qos_library name="web">
-
-    <!-- MetaData reader: must match the writer's durability to get history.
-         RELIABLE + TRANSIENT_LOCAL + KEEP_LAST(1). -->
-    <qos_profile name="metadata">
+    <!-- SelectedValue: durable current-value stream from selector to scada_web.
+         KEEP_LAST(1) retains the latest sample per uid for repeat REST reads and
+         late joiners, including slow-changing values. -->
+    <qos_profile name="selected_value">
+      <datawriter_qos>
+        <reliability>
+          <kind>RELIABLE_RELIABILITY_QOS</kind>
+        </reliability>
+        <durability>
+          <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+          <writer_depth>1</writer_depth>
+        </durability>
+        <history>
+          <kind>KEEP_LAST_HISTORY_QOS</kind>
+          <depth>1</depth>
+        </history>
+      </datawriter_qos>
       <datareader_qos>
         <reliability>
           <kind>RELIABLE_RELIABILITY_QOS</kind>
@@ -90,16 +118,29 @@
       </datareader_qos>
     </qos_profile>
 
-    <!-- IdValue reader: best-effort current-value stream (DD-029, DD-042).
-         No backpressure on the selector; lost samples are superseded by
-         the next periodic publish. -->
-    <qos_profile name="idvalue">
-      <datareader_qos>
+    <!-- SelectedMetaData: durable catalogue stream from selector to scada_web.
+         Metadata streams are TRANSIENT_LOCAL so late joiners receive the latest
+         catalogue sample per uid. -->
+    <qos_profile name="selected_metadata">
+      <datawriter_qos>
         <reliability>
-          <kind>BEST_EFFORT_RELIABILITY_QOS</kind>
+          <kind>RELIABLE_RELIABILITY_QOS</kind>
         </reliability>
         <durability>
-          <kind>VOLATILE_DURABILITY_QOS</kind>
+          <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+          <writer_depth>1</writer_depth>
+        </durability>
+        <history>
+          <kind>KEEP_LAST_HISTORY_QOS</kind>
+          <depth>1</depth>
+        </history>
+      </datawriter_qos>
+      <datareader_qos>
+        <reliability>
+          <kind>RELIABLE_RELIABILITY_QOS</kind>
+        </reliability>
+        <durability>
+          <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
         </durability>
         <history>
           <kind>KEEP_LAST_HISTORY_QOS</kind>
@@ -108,8 +149,7 @@
       </datareader_qos>
     </qos_profile>
 
-    <!-- ValueRequest writer: reliable command channel (DD-023).
-         RELIABLE + KEEP_ALL so commands queue in order. -->
+    <!-- ValueRequest: reliable command stream from scada_web to selector. -->
     <qos_profile name="value_request">
       <datawriter_qos>
         <reliability>
@@ -122,6 +162,17 @@
           <kind>KEEP_ALL_HISTORY_QOS</kind>
         </history>
       </datawriter_qos>
+      <datareader_qos>
+        <reliability>
+          <kind>RELIABLE_RELIABILITY_QOS</kind>
+        </reliability>
+        <durability>
+          <kind>VOLATILE_DURABILITY_QOS</kind>
+        </durability>
+        <history>
+          <kind>KEEP_ALL_HISTORY_QOS</kind>
+        </history>
+      </datareader_qos>
     </qos_profile>
 
   </qos_library>

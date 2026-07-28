@@ -1,4 +1,4 @@
-"""Per-client uid interest refcounting.
+"""Per-client uid interest refcounting and global selector separation.
 
 Implements SR-001 through SR-004 from system-architecture.md §5:
   SR-001: refcount uid interest; ADD on 0→1, DELETE on 1→0
@@ -7,7 +7,8 @@ Implements SR-001 through SR-004 from system-architecture.md §5:
   SR-004: per-client demux — don't forward samples to uninterested clients
 
 The InterestManager is the single source of truth for "which uids are
-currently active system-wide" and "which clients want which uids."
+currently active system-wide", "which clients want which uids", and the current
+global minimum separation used by selector ADD commands.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from typing import Callable
 logger = logging.getLogger(__name__)
 
 # Callback types for upstream actions
-AddCallback = Callable[[int], None]       # uid → send ADD to selector
+AddCallback = Callable[[int, int], None]  # uid, min_separation_ms → send ADD
 DeleteCallback = Callable[[int], None]    # uid → send DELETE to selector
 
 
@@ -36,19 +37,22 @@ class InterestManager:
 
     Usage:
         mgr = InterestManager(on_add=send_add, on_delete=send_delete)
-        mgr.client_subscribe("client_1", uid=5)   # fires on_add(5) if 0→1
-        mgr.client_subscribe("client_2", uid=5)   # refcount 2, no ADD
-        mgr.client_unsubscribe("client_1", uid=5) # refcount 1, no DELETE
-        mgr.client_disconnect("client_2")          # refcount 0→fires on_delete(5)
+        mgr.client_subscribe("client_1", uid=5)   # fires ADD(5, current period)
+        mgr.set_min_separation(100)               # fires ADD(5, 100)
+        mgr.client_unsubscribe("client_1", uid=5) # fires DELETE
     """
 
     def __init__(
         self,
         on_add: AddCallback | None = None,
         on_delete: DeleteCallback | None = None,
+        min_separation_ms: int = 250,
     ):
+        if min_separation_ms < 0:
+            raise ValueError("min_separation_ms must be >= 0")
         self._on_add = on_add
         self._on_delete = on_delete
+        self._min_separation_ms = min_separation_ms
         self._refcounts: dict[int, int] = defaultdict(int)  # uid → count
         self._clients: dict[str, ClientInterest] = {}       # client_id → interest
 
@@ -56,20 +60,33 @@ class InterestManager:
         """Client expresses interest in a uid. ADD on 0→1 transition."""
         client = self._ensure_client(client_id)
         if uid in client.uids:
-            return  # already subscribed — idempotent
+            return
         client.uids.add(uid)
         self._refcounts[uid] += 1
         if self._refcounts[uid] == 1:
-            logger.info("interest_add uid=%d (first client: %s)", uid, client_id)
+            logger.info("interest_add uid=%d client=%s", uid, client_id)
             if self._on_add:
-                self._on_add(uid)
+                self._on_add(uid, self._min_separation_ms)
+
+    def set_min_separation(self, min_separation_ms: int) -> None:
+        """Update the global selector minimum separation for all active uids."""
+        if min_separation_ms < 0:
+            raise ValueError("min_separation_ms must be >= 0")
+        if min_separation_ms == self._min_separation_ms:
+            return
+        self._min_separation_ms = min_separation_ms
+        logger.info("interest_min_separation_update period_ms=%d active_uids=%d",
+                    min_separation_ms, len(self._refcounts))
+        if self._on_add:
+            for uid in sorted(self._refcounts):
+                self._on_add(uid, min_separation_ms)
 
     def client_unsubscribe(self, client_id: str, uid: int) -> None:
         """Client drops interest in a uid. DELETE on 1→0 transition."""
         client = self._clients.get(client_id)
         if client is None or uid not in client.uids:
             return
-        client.uids.discard(uid)
+        client.uids.remove(uid)
         self._refcounts[uid] -= 1
         if self._refcounts[uid] <= 0:
             del self._refcounts[uid]
@@ -99,11 +116,20 @@ class InterestManager:
         """The full set of uids with refcount > 0 (for SR-003 reconciliation)."""
         return set(self._refcounts.keys())
 
-    def reconcile(self) -> list[int]:
-        """SR-003: return the full active uid set for re-sending after selector restart."""
-        uids = sorted(self.active_uids())
-        logger.info("interest_reconcile uids=%d", len(uids))
-        return uids
+    @property
+    def min_separation_ms(self) -> int:
+        """Current global selector minimum separation."""
+        return self._min_separation_ms
+
+    def active_periods(self) -> dict[int, int]:
+        """Active uids mapped to the current global minimum separation."""
+        return {uid: self._min_separation_ms for uid in self.active_uids()}
+
+    def reconcile(self) -> dict[int, int]:
+        """SR-003: return active uids and periods for selector restart."""
+        periods = dict(sorted(self.active_periods().items()))
+        logger.info("interest_reconcile uids=%d", len(periods))
+        return periods
 
     def _ensure_client(self, client_id: str) -> ClientInterest:
         if client_id not in self._clients:
