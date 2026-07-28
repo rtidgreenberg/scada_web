@@ -1,7 +1,7 @@
 # scada_web configuration
 #
 # Declares DDS participants and topic subscriptions for the pre-selector PoC.
-# Target topology moves this gateway to domain 1 and selected topics only.
+# Target topology moves this gateway to domain 16 (presentation) and selected topics only.
 # Pattern: references/act-sim-scope-infra/router/config/control-platform.yaml
 
 # --- XML type library ---
@@ -21,10 +21,11 @@ selection:
   default_min_separation_ms: 250
 
 # --- DDS participants ---
-# Each participant joins a domain and discovers endpoints on it.
+# Domain IDs are defined in dds/idl/PlcValue.idl (PLC::FIELD_DOMAIN_ID = 15,
+# PLC::PRESENTATION_DOMAIN_ID = 16). This gateway reads from the presentation domain.
 participants:
   plc_domain:
-    domain: 0  # same domain as sim/plc_publisher.py
+    domain: 16  # PLC::PRESENTATION_DOMAIN_ID
 
 # --- Topic subscriptions ---
 # Topic name defaults to type name if type: is omitted.

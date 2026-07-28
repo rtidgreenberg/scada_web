@@ -139,7 +139,7 @@ simpler and bounded.
       PLC::MetaData  (@key uid · RELIABLE · TRANSIENT_LOCAL · once at startup)
       PLC::IdValue   (@key uid · RELIABLE · VOLATILE · periodic)
                    │                          ┌─────────────────────┐
-                   │                          │  DDS DOMAIN 0       │
+                   │                          │  DDS DOMAIN 15      │
                    │                          │  (field)            │
                    ▼                          └─────────────────────┘
   ┌──────────────────────────────────────── Level 2 ───────┐
@@ -150,7 +150,7 @@ simpler and bounded.
   │    • republishes — same types, unmodified, downrated   │
   │    • forwards MetaData unmodified; serves the whole    │
   │      catalogue on METADATA request (no durability out) │
-  │    • TWO DomainParticipants: field (0) and web (1)     │
+  │    • TWO DomainParticipants: field (15) and web (16)   │
   │      (DD-044)                                          │
   └════════┬═════════════════════════════════▲═════════════┘
     ═══════╪══════ hard RT ─│─ soft RT ══════╪═══════════════  ← the boundary
@@ -161,14 +161,14 @@ simpler and bounded.
    (MetaData · BEST_EFFORT · on request)  one exception, DD-023/DD-029)
            │                                  │
            │                          ┌─────────────────────┐
-           │                          │  DDS DOMAIN 1       │
-           │                          │  (web)              │
+           │                          │  DDS DOMAIN 16      │
+           │                          │  (presentation)     │
            ▼                          └─────────────────────┘
   ┌──────────────────────────────────────────┴────────────┐
   │  scada-web         ROLE 2: presentation                │
   │    • readers on SelectedValue + SelectedMetaData; one  │
   │      writer on ValueRequest — fixed, small entity set  │
-  │    • NO field-side endpoint — nothing on domain 0,     │
+  │    • NO field-side endpoint — nothing on domain 15,    │
   │      not even discovery traffic (DD-044)               │
   │    • uid→metadata map: tag catalogue + view lookup     │
   │    • refcounts uid interest across clients             │

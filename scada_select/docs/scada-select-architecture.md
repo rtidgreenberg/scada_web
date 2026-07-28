@@ -784,8 +784,11 @@ cmake -S scada_select -B scada_select/build \
 cmake --build scada_select/build -j
 
 export LD_LIBRARY_PATH=/home/rti/rti_connext_dds-7.7.0/lib/x64Linux4gcc7.3.0
-./scada_select/build/scada_selector --domain 0
+./scada_select/build/scada_selector
 ```
+
+Domain IDs are compiled from the IDL constants (`PLC::FIELD_DOMAIN_ID = 15`,
+`PLC::PRESENTATION_DOMAIN_ID = 16`) rather than passed on the command line.
 
 Three traps, all verified against the local 7.7.0 install:
 `connextdds_rtiddsgen_run`'s `VAR plc` yields `${plc_CXX11_SOURCES}` (not

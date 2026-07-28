@@ -5,6 +5,10 @@ module PLC {
     const long MAX_HOSTNAME_LENGTH = 32;   
 	const long MAX_NAME_LENGTH = 32;
 
+	// Domain IDs — single source of truth for all components.
+	const long FIELD_DOMAIN_ID = 15;
+	const long PRESENTATION_DOMAIN_ID = 16;
+
 	typedef string<MAX_HOSTNAME_LENGTH> Hostname_t;  
 	typedef string<MAX_NAME_LENGTH> Name_t;
 

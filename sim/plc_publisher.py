@@ -28,7 +28,7 @@ keyed on each tag's next-due time drives the scan loop so 500 independently
 rated tags are serviced without polling every tag every tick.
 
 Usage:
-    python3 sim/plc_publisher.py --domain-id 0
+    python3 sim/plc_publisher.py --domain-id 15
 """
 
 import argparse
@@ -173,7 +173,8 @@ def run(domain_id: int, verbose: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--domain-id", type=int, default=0, help="DDS domain ID")
+    parser.add_argument("--domain-id", type=int, default=15,
+                        help="DDS domain ID (default: PLC::FIELD_DOMAIN_ID)")
     parser.add_argument(
         "--verbose", action="store_true", help="Print each sample as it's published"
     )

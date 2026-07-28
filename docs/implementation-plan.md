@@ -14,7 +14,7 @@ over REST/WebSocket.
 
 ```
 sim/                    scada-selector         scada_web (Python)        Browser
-┌────────────┐ domain 0 ┌──────────────┐ domain 1 ┌────────────────┐     ┌─────┐
+┌────────────┐domain 15┌──────────────┐domain 16┌────────────────┐     ┌─────┐
 │ field_sim  │──DDS───▶│ compiled C++ │──DDS───▶│ generated types │─HTTP▶│ GUI │
 │ plc_pub    │          │ fixed uid    │          │ views.py       │◀─WS─│     │
 └────────────┘          │ range + QoS  │          │ server.py      │     └─────┘

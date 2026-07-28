@@ -1,11 +1,12 @@
 # scada-selector configuration
 #
 # Fixed DDS topology is controlled by domain/topic names and shared QoS profiles.
+# Domain IDs are defined in dds/idl/PlcValue.idl:
+#   PLC::FIELD_DOMAIN_ID = 15
+#   PLC::PRESENTATION_DOMAIN_ID = 16
 # Selection defaults are loaded at startup; the PERIOD command (ValueRequest union)
 # overrides the global minimum separation at runtime.
 
-field_domain: 0
-presentation_domain: 1
 qos_profiles: ../dds/qos/profiles.xml
 
 selection:

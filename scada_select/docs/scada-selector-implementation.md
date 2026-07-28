@@ -118,8 +118,8 @@ pass.
 #include <dds/dds.hpp>
 #include "PlcValue.hpp"
 
-dds::domain::DomainParticipant field_participant(0);
-dds::domain::DomainParticipant presentation_participant(1);
+dds::domain::DomainParticipant field_participant(PLC::FIELD_DOMAIN_ID);
+dds::domain::DomainParticipant presentation_participant(PLC::PRESENTATION_DOMAIN_ID);
 dds::sub::Subscriber field_subscriber(field_participant);
 dds::sub::Subscriber presentation_subscriber(presentation_participant);
 dds::pub::Publisher  presentation_publisher(presentation_participant);
