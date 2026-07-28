@@ -48,9 +48,42 @@ function Open-Browser($u) {
 $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python) { $python = Get-Command py -ErrorAction SilentlyContinue }
 if ($python) {
-    Write-Host "  using: $($python.Source) -m http.server" -ForegroundColor DarkGray
+    $pyServer = @'
+import http.server
+import mimetypes
+import os
+import sys
+from urllib.parse import unquote
+
+class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
+    def do_GET(self):
+        self.path = unquote(self.path)
+        return super().do_GET()
+
+    def do_HEAD(self):
+        self.path = unquote(self.path)
+        return super().do_HEAD()
+
+if __name__ == "__main__":
+    root = sys.argv[1] if len(sys.argv) > 1 else "."
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else 8000
+    os.chdir(root)
+    mimetypes.init()
+    with http.server.ThreadingHTTPServer(("127.0.0.1", port), NoCacheHandler) as httpd:
+        print(f"serving {root} on http://127.0.0.1:{port}/")
+        httpd.serve_forever()
+'@
+    $tmp = Join-Path $env:TEMP "scada_ui_server.py"
+    [System.IO.File]::WriteAllText($tmp, $pyServer, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "  using: $($python.Source) (custom no-cache server)" -ForegroundColor DarkGray
     Open-Browser $Url
-    & $python.Source -m http.server $Port --directory $UiDir
+    & $python.Source $tmp $UiDir $Port
     return
 }
 
@@ -69,7 +102,13 @@ http.createServer((req, res) => {
   if (!fp.startsWith(dir)) { res.writeHead(403); res.end("forbidden"); return; }
   fs.readFile(fp, (e, d) => {
     if (e) { res.writeHead(404); res.end("not found"); return; }
-    res.writeHead(200, { "Content-Type": types[path.extname(fp).toLowerCase()] || "application/octet-stream" });
+    const headers = { "Content-Type": types[path.extname(fp).toLowerCase()] || "application/octet-stream" };
+    if (path.extname(fp).toLowerCase() === ".html") {
+      headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+      headers["Pragma"] = "no-cache";
+      headers["Expires"] = "0";
+    }
+    res.writeHead(200, headers);
     res.end(d);
   });
 }).listen(port, () => console.log("  node static server listening on " + port));

@@ -17,7 +17,7 @@ qos_profiles: dds/qos/profiles.xml
 # Each participant joins a domain and discovers endpoints on it.
 participants:
   plc_domain:
-    domain: 0  # same domain as sim/plc_publisher.py
+    domain: 15  # WIS participant uses DDS domain 15
 
 # --- Topic subscriptions ---
 # Topic name defaults to type name if type: is omitted.

@@ -66,19 +66,39 @@
         <enumerator name="ADD"/>
         <enumerator name="DELETE"/>
         <enumerator name="METADATA"/>
+        <enumerator name="PERIOD"/>
       </enum>
-      <struct name="ValueRequest">
+      <struct name="AddRequest_t" nested="true">
         <member name="uid" type="nonBasic" nonBasicTypeName="PLC::UniqueId_t"/>
         <member name="name" type="nonBasic" nonBasicTypeName="PLC::Name_t"/>
-        <member name="command" type="nonBasic" nonBasicTypeName="PLC::Command_t"/>
+      </struct>
+      <struct name="PeriodRequest_t" nested="true">
         <member name="period_ms" type="uint32"/>
       </struct>
+      <union name="ValueRequest">
+        <discriminator type="nonBasic" nonBasicTypeName="PLC::Command_t"/>
+        <case>
+          <caseDiscriminator value="(PLC::ADD)"/>
+          <member name="addRequest" type="nonBasic" nonBasicTypeName="PLC::AddRequest_t"/>
+        </case>
+        <case>
+          <caseDiscriminator value="(PLC::DELETE)"/>
+        </case>
+        <case>
+          <caseDiscriminator value="(PLC::METADATA)"/>
+          <member name="uid" type="nonBasic" nonBasicTypeName="PLC::UniqueId_t"/>
+        </case>
+        <case>
+          <caseDiscriminator value="(PLC::PERIOD)"/>
+          <member name="periodRequest" type="nonBasic" nonBasicTypeName="PLC::PeriodRequest_t"/>
+        </case>
+      </union>
     </module>
   </types>
 
   <web_integration_service name="ScadaWeb">
     <application name="ScadaWebApp">
-      <domain_participant name="Plant" domain_id="0">
+      <domain_participant name="Plant" domain_id="15">
         <register_type name="MetaDataType" type_ref="PLC::MetaData"/>
         <register_type name="IdValueType" type_ref="PLC::IdValue"/>
         <register_type name="ValueRequestType" type_ref="PLC::ValueRequest"/>
