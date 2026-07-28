@@ -103,7 +103,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-48](#oq-48) | `METADATA` on-demand re-read uses `any_sample_state()`, not `new_data()`? | OPEN | MEDIUM | DG | METADATA command returning empty |
 | [OQ-49](#oq-49) | Throttle on `METADATA(ALL)` requests to prevent catalogue spam? | OPEN | LOW | DG | Selector CPU under misbehaving client |
 | [OQ-50](#oq-50) | `mapping.py` module referenced in `__init__.py` but never created | DECIDED → [DD-045](design-decisions.md#dd-045) | HIGH | DG | View projection dead code path |
-| [OQ-51](#oq-51) | Gateway `_read_loop` fires `on_sample` callback synchronously in async context | OPEN | HIGH | DG | Event-loop starvation under load |
+| [OQ-51](#oq-51) | Gateway `_read_loop` fires `on_sample` callback synchronously in async context | DECIDED → [DD-047](design-decisions.md#dd-047) | HIGH | DG | Event-loop starvation under load |
 | [OQ-52](#oq-52) | No QoS set on gateway readers — defaults mismatch publisher QoS | DECIDED → [DD-046](design-decisions.md#dd-046) | HIGH | DG | MetaData never arrives (RELIABLE vs default) |
 | [OQ-53](#oq-53) | Config YAML `type:` key vs dataclass `type_name` field naming inconsistency | OPEN | MEDIUM | DG | Confusing; shadows Python builtin |
 | [OQ-54](#oq-54) | `_sample_to_dict` uses `data.to_json()` but DynamicData may not support it | DECIDED → [DD-045](design-decisions.md#dd-045) | MEDIUM | DG | Runtime crash on first sample |
@@ -1931,9 +1931,12 @@ raw DDS wire JSON, not the slim view schema promised by the architecture.
 ### OQ-51
 **Gateway `_read_loop` fires `on_sample` callback synchronously in async context**
 
-- **Status:** OPEN · **Priority:** HIGH · **Owner:** DG
+- **Status:** DECIDED · **Priority:** HIGH · **Owner:** DG
 - **Blocks:** Event-loop starvation under load
 - **Raised:** 2026-07-27 (scada-web code review)
+- **Decision:** 2026-07-27 — [DD-047](design-decisions.md#dd-047). Option (c): `rti.asyncio`'s
+  WaitSet-backed `take_async()` replaces the poll loop. One asyncio task per
+  reader, wakes only on data arrival, no blocking calls in the event loop.
 
 **Context.** `DdsGateway._read_loop` is an `async def` that does
 `await asyncio.sleep(0.05)` between polls, but the `self.on_sample(...)` call is

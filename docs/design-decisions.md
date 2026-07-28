@@ -1886,3 +1886,36 @@ Python.
 **Revisit if.** A DDS Security Governance file or DomainParticipant QoS profiles
 are needed — at which point this file may be merged into a larger XML
 configuration or loaded via `NDDS_QOS_PROFILES` env var.
+
+---
+
+### DD-047
+**Replace poll loop with `rti.asyncio` WaitSet-backed `take_async`.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Resolves:** [OQ-51](questions.md#oq-51) · **Affects:** [OQ-39](questions.md#oq-39), gateway.py
+
+**Decision.** The gateway uses `rti.asyncio`'s `take_async()` — one asyncio task
+per reader, each backed by a WaitSet that wakes only when data arrives. The 50 ms
+poll-sleep loop is removed.
+
+**Context.** The poll loop had three defects: `reader.take()` is a blocking call
+in the event loop thread; `on_sample()` dispatch is synchronous with no yield
+between samples; and the 50 ms sleep adds unnecessary latency. `rti.asyncio`
+provides a `_WaitSetAsyncDispatcher` that runs `wait_async()` in an executor
+thread and dispatches in the asyncio thread — exactly the fd-bridge approach
+listed as OQ-51 option (c), already implemented by RTI.
+
+**Alternatives.** (a) `run_in_executor` for `reader.take()` — rejected because
+DynamicData loan references may not be safe to access across threads without
+copying, and the copy is the mapping layer (deferred). (b) Accept for PoC —
+rejected because the fix is trivial now that `rti.asyncio` exists.
+
+**Consequences.** The gateway now depends on `rti.asyncio`, which is part of the
+Connext Python API but not heavily documented. The `on_sample` callback is still
+synchronous within the asyncio thread; under extreme load a single reader's burst
+could still delay other tasks. Mitigation: yield every N samples if profiling
+shows starvation.
+
+**Revisit if.** Profiling shows `on_sample` dispatch within a single
+`take_async` batch exceeds 5 ms, or `rti.asyncio` is removed from the Connext
+Python distribution.
