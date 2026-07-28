@@ -1,7 +1,7 @@
 # SCADA Demo — Implementation Plan
 
 **Status:** Active
-**Date:** 2026-07-27
+**Date:** 2026-07-28
 
 ---
 
@@ -26,9 +26,9 @@ sim/                    scada-selector         scada_web (Python)        Browser
 | # | Component | Work | Status |
 |---|---|---|---|
 | 1.1 | **scada-sim** | Already exists (`sim/`). Publishes `PLC::MetaData` + `PLC::IdValue` on domain 0. | Done |
-| 1.2 | **scada-selector** | Compiled-type C++ app. Bridges domain 0 → domain 1, pre-enables the fixed PoC uid range (DD-039), republishes values on `PLC::SelectedValue`, and forwards metadata on `PLC::SelectedMetaData`. | Not started |
-| 1.3 | **scada_web gateway** | Python generated-type readers on domain 1 selected topics; `views.py` maps generated DDS samples to slim web-facing dataclasses (DD-052/DD-053). | Scaffolded; target-topic switch not done |
-| 1.4 | **Browser GUI** | Minimal HMI that consumes latest-value WebSocket pushes and keeps a client-side trend buffer. | Not started |
+| 1.2 | **scada-selector** | Compiled-type C++ app. Bridges domain 0 → domain 1, pre-enables the fixed PoC uid range (DD-039), republishes values on `PLC::SelectedValue`, and forwards metadata on `PLC::SelectedMetaData`. | Done |
+| 1.3 | **scada_web gateway** | Python generated-type readers on domain 1 selected topics; `views.py` maps generated DDS samples to slim web-facing dataclasses (DD-052/DD-053). | Done |
+| 1.4 | **Browser GUI** | Minimal HMI that consumes latest-value WebSocket pushes and keeps a client-side trend buffer. | Done |
 
 ### Phase 1 Success Criteria
 
@@ -64,9 +64,9 @@ scada_web InterestManager ──ValueRequest(RELIABLE + KEEP_ALL)──▶ scada
 
 | # | Component | Work | Status |
 |---|---|---|---|
-| 2.1 | **ValueRequest writer** | Back-channel DDS writer in `gateway.py` to send ADD/DELETE/METADATA/PERIOD union commands to scada-selector with `RELIABLE` + `KEEP_ALL`. | Not started |
-| 2.2 | **Interest refcounting** | Aggregate per-client uid interest; send ADD on 0→1, DELETE on 1→0, and send PERIOD command when the global minimum separation changes. | Not started |
-| 2.3 | **Per-client demux** | Do not forward a selected sample to a client that did not request its uid. | Not started |
+| 2.1 | **ValueRequest writer** | Back-channel DDS writer in `gateway.py` to send ADD/DELETE/METADATA/PERIOD union commands to scada-selector with `RELIABLE` + `KEEP_ALL`. | Done |
+| 2.2 | **Interest refcounting** | Aggregate per-client uid interest; send ADD on 0→1, DELETE on 1→0, and send PERIOD command when the global minimum separation changes. | Done |
+| 2.3 | **Per-client demux** | Do not forward a selected sample to a client that did not request its uid. | Done |
 | 2.4 | **Catalogue bootstrap** | Pick the `METADATA` all-sentinel value, request the catalogue, retry missing replies, and define UI readiness. | Not started |
 | 2.5 | **Selector restart reconciliation** | Detect selector restart/liveliness loss and resend the active interest set. | Not started |
 
@@ -92,15 +92,15 @@ scada_web InterestManager ──ValueRequest(RELIABLE + KEEP_ALL)──▶ scada
 ## Sequencing
 
 ```
-Phase 1                              Phase 2
+Phase 1 (COMPLETE)                   Phase 2
 ────────────────────────────────     ──────────────────────────────────
-1.1 sim (done)                       2.1 ValueRequest writer
-1.2 selector fixed range ───────┐    2.2 interest refcount + rates
-1.3 scada_web selected topics ──┤    2.3 per-client demux
+1.1 sim (done)                       2.1 ValueRequest writer (done)
+1.2 selector fixed range (done) ┐    2.2 interest refcount + rates (done)
+1.3 scada_web selected topics ──┤    2.3 per-client demux (done)
 1.4 browser latest-value UI ────┘    2.4 catalogue request/retry
       │                           2.5 selector restart reconciliation
       ▼                                    │
-    [Typed PoC demo]                          ▼
+    [Typed PoC demo — DONE]                   ▼
                  [Dynamic selection demo]
 ```
 

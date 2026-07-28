@@ -185,7 +185,11 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         while True:
             msg = await ws.receive_json()
-            _handle_ws_message(client_id, msg)
+            try:
+                _handle_ws_message(client_id, msg)
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.warning("ws_bad_message client=%s err=%s", client_id, exc)
+                await ws.send_json({"error": str(exc)})
     except WebSocketDisconnect:
         pass
     except Exception:

@@ -369,7 +369,7 @@ function submitUnsubscribe() {
 }
 function submitPeriod() {
   const period = parseInt(el("reqPeriod").value.trim(), 10);
-  if (!Number.isInteger(period) || period < 0) { el("reqPeriod").focus(); return; }
+  if (!Number.isInteger(period) || period <= 0) { el("reqPeriod").focus(); return; }
   if (!ws || ws.readyState !== WebSocket.OPEN) { setStatus("off", "connect first"); el("cfg").open = true; return; }
   const sent = sendWs({ action: "set_min_separation", period_ms: period });
   if (sent) updateReqStatus(`minimum separation set to ${period} ms`);
