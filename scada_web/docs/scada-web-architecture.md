@@ -1,7 +1,7 @@
 # scada_web — Python Gateway Architecture
 
-**Status:** Draft v0.2
-**Date:** 2026-07-27
+**Status:** Draft v0.3
+**Date:** 2026-07-28
 
 The `scada_web/` package is the Level 2 (supervisory) web gateway. It bridges
 the DDS global data space to browser clients over REST and WebSocket, applying a
@@ -36,7 +36,10 @@ scada_web/
 ├── config.yaml       Default configuration (wired to sim/)
 ├── gateway.py        DDS entity lifecycle (participants, readers)
 ├── interest.py       Per-client uid refcounting
-└── server.py         FastAPI REST + WebSocket surface
+├── mapping.py        [DEPRECATED] DynamicData char-array / union patching
+├── views.py          View dataclasses + field mapping from generated types
+├── server.py         FastAPI REST + WebSocket surface
+└── gen/              Python generated types (rtiddsgen output, committed)
 ```
 
 ### 2.1 Dependency Flow (acyclic)
@@ -44,7 +47,10 @@ scada_web/
 ```
 config.py
    │
-   └──▶ gateway.py ────▶ (rti.connextdds + QosProvider for XML types)
+   └──▶ gateway.py ────▶ (rti.connextdds + generated types from gen/)
+            │
+            ▼
+        views.py ───────▶ (gen/PLC → view dataclasses)
             │
             ▼
         server.py ──────▶ (fastapi, uvicorn)
@@ -60,36 +66,36 @@ unit-tested without the Connext runtime.
 
 ## 3. Key Design Decisions
 
-### 3.1 XML Type Library — Types Loaded at Startup
+### 3.1 Python Generated Types (DD-052)
 
-The gateway loads DynamicTypes from an XML type library at startup via
-`dds.QosProvider`. The XML is generated from the canonical IDL source:
+The gateway uses **Python generated types** produced by `rtiddsgen`, not
+DynamicData. The types are generated once from the canonical IDL source:
 
 ```bash
-rtiddsgen -convertToXml dds/idl/PlcValue.idl -d dds/idl/
+rtiddsgen -language python -d scada_web/gen/ dds/idl/PlcValue.idl
 ```
+
+The generated output is committed to the repository — types are static SCADA
+infrastructure that does not change at runtime.
 
 In SCADA, the data model is **commissioned infrastructure** — it is defined
 once during system engineering and does not change at runtime. This makes
-wire-learned types (the pattern from `references/act-sim-scope-infra/`) 
-unnecessarily complex for this use case. That pattern suits generic DDS tools
-(routers, scopes) that must handle arbitrary types; a SCADA master knows
-exactly what types it will see.
+DynamicData (the pattern from `references/act-sim-scope-infra/`) unnecessarily
+complex for this use case. That pattern suits generic DDS tools (routers,
+scopes) that must handle arbitrary types; a SCADA master knows exactly what
+types it will see.
 
-**Consequence:** the gateway creates all DDS readers immediately at startup —
-no dependency on publishers being up first. Simpler code, faster startup,
-easier to test.
+**Consequence:** the gateway creates typed DataReaders directly at startup —
+no DynamicData, no XML type loading, no string-based member access. IDE
+autocompletion, import-time error detection, and direct attribute access for
+field mapping.
 
 ### 3.2 YAML Configuration
 
-All DDS topology (participants, topics, filters) and view mappings are declared
-in a single YAML file. The schema is modeled after the act-sim-scope-infra
-router config:
+DDS topology (participants, topics, filters) is declared in a YAML file.
+The schema is modeled after the act-sim-scope-infra router config:
 
 ```yaml
-types:
-  xml: dds/idl/PlcValue.xml    # XML type library path
-
 participants:
   <name>:
     domain: <int>
@@ -97,19 +103,42 @@ participants:
 topics:
   - name: <TopicName>
     participant: <name>
-    type: "PLC::MetaData"      # fully-qualified type from XML
+    type: "PLC::MetaData"      # fully-qualified generated type name
     filter:                    # optional content filter
       expression: "uid = %0"
       parameters: ["5"]
-
-views:
-  - name: <view_name>
-    topic: <TopicName>
-    fields:
-      - wire: <DynamicData path>
-        view: <JSON key>
-        transform: union_scalar | char_array_string
 ```
+
+**Note:** View mappings are **not** in config — they are Python code in
+`views.py` (DD-053). This gives typed attribute access, IDE completion, and
+import-time validation rather than string-path resolution at runtime.
+
+### 3.5 View Types and Field Mapping (DD-053)
+
+The mapping from DDS generated types to smaller web-facing view types lives
+in `views.py` as classmethods on each view dataclass:
+
+```python
+@dataclass(slots=True)
+class TagValue:
+    uid: int
+    value: float
+    timestamp: int
+
+    @classmethod
+    def from_idvalue(cls, s: PLC.IdValue) -> "TagValue":
+        return cls(
+            uid=s.uid,
+            value=s.smoothedValue.float64Value,
+            timestamp=s.valueTime,
+        )
+```
+
+This pattern:
+- Defines a **smaller type** than the full DDS wire type
+- Maps only the fields the web client needs
+- Handles union discrimination with normal Python (no config DSL)
+- Is individually unit-testable without DDS infrastructure
 
 ### 3.3 Async Event Loop (not thread-per-connection)
 
@@ -225,17 +254,10 @@ List of topic subscriptions.
 | `filter.expression` | string | no | Content filter SQL expression |
 | `filter.parameters` | list | no | Filter parameter values |
 
-### 6.3 `views`
+### 6.3 Views (code, not config)
 
-List of view projections (wire → JSON).
-
-| Key | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | yes | View identifier |
-| `topic` | string | yes | References a topic name |
-| `fields[].wire` | string | yes | DynamicData field path |
-| `fields[].view` | string | yes | JSON output key |
-| `fields[].transform` | string | no | `union_scalar`, `char_array_string` |
+View mappings are **not** configured in YAML. They are Python classmethods
+in `views.py` — see §3.5 and [DD-053](../../docs/design-decisions.md#dd-053).
 
 ### 6.4 `server`
 
@@ -285,7 +307,7 @@ The submodule at `references/act-sim-scope-infra/` provides proven patterns:
 | `config.py` (YAML schema) | `router/config/control-platform.yaml` + `RouteConfigParser.cxx` |
 
 The C++ router uses wire-learned types because it is a generic DDS tool that
-routes arbitrary data. scada_web uses XML-loaded types because it is a
+routes arbitrary data. scada_web uses Python generated types because it is a
 purpose-built SCADA master that knows its data model at commission time.
 Both share YAML-driven topology declaration.
 
@@ -293,8 +315,8 @@ Both share YAML-driven topology declaration.
 
 ## 9. Future Work
 
-- **Mapping engine** (`mapping.py`): union projection, char-array decode,
-  field rename/flatten — the thesis under test per the TRD §1.1.
+- **Remove `mapping.py`**: the DynamicData char-array / union patching is
+  superseded by generated types + view classmethods (DD-052, DD-053).
 - **ValueRequest writer**: back-channel to scada-selector for interest management.
 - **Historian hook**: periodic snapshot recording independent of live scan rate.
 - **Alarm state machine** (ISA-18.2): Normal → Unack → Ack → RTN, with
