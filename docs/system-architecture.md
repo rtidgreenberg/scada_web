@@ -11,8 +11,8 @@ scada-web, this describes the *outside*.
 
 > **Hosting:** scada-selector is a **standalone C++ service** (compiled types,
 > [DD-026](design-decisions.md#dd-026)); scada-web is a **standalone Python
-> service** using `rti.connextdds` and `DynamicData`
-> ([DD-002](design-decisions.md#dd-002)). Routing Service is not used. The topic
+> service** using `rti.connextdds` with Python generated types
+> ([DD-052](design-decisions.md#dd-052)). Routing Service is not used. The topic
 > contracts in §4 hold either way.
 
 ---
@@ -23,7 +23,7 @@ scada-web, this describes the *outside*.
 |---|---|---|---|---|
 | 1 | **scada-sim** — simulated field process + PLC/RTU | 0–1 | Python | Exists ([sim/](../sim/)) |
 | 2 | **scada-selector** — key-based selection | 2 | C++ standalone, **compiled types** ([DD-026](design-decisions.md#dd-026)) | Not started |
-| 3 | **scada-web** — web gateway + mapping engine | 2 | Python (FastAPI + `rti.connextdds`), **DynamicData** ([DD-002](design-decisions.md#dd-002)) | Scaffolded |
+| 3 | **scada-web** — web gateway + view layer | 2 | Python (FastAPI + `rti.connextdds`), **generated types** ([DD-052](design-decisions.md#dd-052)) | Scaffolded |
 | 4 | **browser interface** — HMI | 2 | Web — [OQ-16](questions.md#oq-16) | Not started |
 
 Per the [scada-sme](../.github/agents/scada-sme.agent.md) guidance on ISA-95
@@ -48,22 +48,21 @@ the hard-real-time field side and the soft-real-time presentation side
 ([DD-028](design-decisions.md#dd-028)). That is why `MetaData` passes through it —
 forwarded unmodified on its own topic, not merged into values.
 
-- Input: the subscription request topic (uid, enabled, rate), `IdValue`, `MetaData`
+- Input: the subscription request topic (uid, enabled, global minimum separation), `IdValue`, `MetaData`
 - Output: `IdValue` on a selected topic and `MetaData` on a selected topic —
   **same types, different topic names**
-- State: per-uid `{enabled, period, last_emitted}`, plus one field-side reader cache
+- State: global minimum separation, per-uid `{enabled, last_emitted}`, plus one field-side reader cache
   that holds the tag catalogue and answers `METADATA` requests
   ([DD-029](design-decisions.md#dd-029))
 - Not its job: JSON, HTTP, view schemas, correlation, alarm logic, and — still —
   any uid→metadata *map*; it forwards metadata without interpreting it
 
-Selection has **two dimensions**, and the rate axis matters as much as the id
-axis ([DD-027](design-decisions.md#dd-027)): it is what keeps the volume reaching
-scada-web's `DynamicData` reader small enough for that representation to be
-affordable. Batched small samples are measurably expensive to receive as
-`DynamicData` — Connext unpacks a batch and deserializes each sample
-individually, so batching cuts network overhead but concentrates per-sample cost
-into a burst. Downrating removes the burst before any `DynamicData` reader sees it.
+Selection has **two controls**, and the global separation matters as much as the id
+axis ([DD-027](design-decisions.md#dd-027)): it keeps the volume reaching
+scada-web small enough for the web gateway, view mapping, JSON serialization, and
+browser delivery path. Batched small samples still unpack into individual samples
+at the reader, so batching cuts network overhead but can concentrate per-sample
+work into a burst. Downrating removes that burst before the presentation tier sees it.
 
 ### Role 2 — presentation: "what the web sees, and how"
 
@@ -72,7 +71,7 @@ are about the boundary between DDS and the web:
 
 - **Model transformation** — project the wire model down to a slimmer view
   schema: rename, flatten, drop, unit-convert, resolve unions to scalars.
-- **Protocol conversion** — DynamicData ⇄ JSON, REST, WebSocket.
+- **Protocol conversion** — generated DDS samples ⇄ view dataclasses ⇄ JSON, REST, WebSocket.
 
 - Input: filtered `IdValue`, plus `MetaData` for descriptions (§6.2)
 - Output: JSON over REST/WebSocket
@@ -97,14 +96,15 @@ concern and can only be done where the connections are.
 | Role | Component | Host | Types | Why |
 |---|---|---|---|---|
 | Selection | scada-selector | **Standalone C++** | **Compiled** (rtiddsgen from `PlcValue.idl`) | High-rate stream: the key check must be a struct field access, not a name lookup. Rules out a Routing Service Processor, whose built-in DDS adapter is DynamicData-based ([DD-026](design-decisions.md#dd-026)). |
-| Presentation | scada-web | **Standalone Python** (FastAPI + `rti.connextdds`) | **DynamicData** ([DD-002](design-decisions.md#dd-002)) | Must handle types it has never seen. Python's `rti.asyncio` gives WaitSet-backed async reads; FastAPI serves REST + WebSocket. C++ was the original product direction but Python is correct for the PoC ([DD-047](design-decisions.md#dd-047)). |
+| Presentation | scada-web | **Standalone Python** (FastAPI + `rti.connextdds`) | **Python generated types** ([DD-052](design-decisions.md#dd-052)) | The SCADA data model is commissioned infrastructure, so typed readers and `views.py` mappings are simpler and safer than runtime `DynamicData`. Python's `rti.asyncio` gives WaitSet-backed async reads; FastAPI serves REST + WebSocket ([DD-047](design-decisions.md#dd-047)). |
 
-**The two roles have deliberately opposite type strategies**, and each is right
-for its role: Role 1 handles one known type as fast as possible; Role 2 handles
-arbitrary types it was never compiled against. One IDL, two automated
-derivations — `rtiddsgen` for the selector, `rtiddsgen -convertToXml` for the XML
-types library scada-web loads at runtime — so nothing is hand-transcribed and
-nothing drifts ([OQ-20](questions.md#oq-20)).
+**Both roles now use generated types**, but for the same architectural reason:
+this is a SCADA system with a fixed, commissioned data model. Role 1 uses C++
+generated types for the high-rate hot path; Role 2 uses Python generated types so
+view mapping is normal typed Python code rather than string-path reflection. One
+IDL, two automated derivations — `rtiddsgen` for C++ and Python — so nothing is
+hand-transcribed and nothing drifts ([OQ-20](questions.md#oq-20),
+[DD-052](design-decisions.md#dd-052), [DD-053](design-decisions.md#dd-053)).
 
 **Routing Service is therefore not used.** A real loss — its remote
 administration and monitoring were the strongest argument for involving it, and
@@ -143,10 +143,10 @@ simpler and bounded.
                    │                          │  (field)            │
                    ▼                          └─────────────────────┘
   ┌──────────────────────────────────────── Level 2 ───────┐
-  │  scada-selector   ROLE 1: select by id AND rate        │
+  │  scada-selector   ROLE 1: select by id + global period │
   │                   + THE SYSTEM BOUNDARY (DD-028)       │
   │    • compiled types — absorbs the batched full stream  │
-  │    • per-uid {enabled, period, last_emitted}           │
+  │    • global period + per-uid {enabled, last_emitted}   │
   │    • republishes — same types, unmodified, downrated   │
   │    • forwards MetaData unmodified; serves the whole    │
   │      catalogue on METADATA request (no durability out) │
@@ -243,13 +243,13 @@ struct ValueRequest {
     UniqueId_t     uid;         // long
     Name_t         name;        // string<32>
     Command_t      command;
-    unsigned long  period_ms;   // 0 = every sample
+    unsigned long  period_ms;   // 0 = selector YAML default
 };
 ```
 
 | Command | Meaning | `period_ms` |
 |---|---|---|
-| `ADD` | Enable `uid` on the output topic | Max publish rate for this uid; `0` = every sample. Re-sending `ADD` for an already-enabled uid **updates its rate**. |
+| `ADD` | Enable `uid` on the output topic | Global minimum separation; `0` = selector YAML default. Re-sending `ADD` after a global runtime change updates enabled selector state. |
 | `DELETE` | Disable `uid` | Ignored |
 | `METADATA` | Re-publish `MetaData` for `uid` | Ignored |
 
@@ -318,7 +318,7 @@ reopened).
 | Type | `MetaData` | `MetaData` — same |
 | QoS | `RELIABLE` · `TRANSIENT_LOCAL` · `KEEP_LAST 1` | **`BEST_EFFORT` · `VOLATILE`** · `KEEP_LAST 1` ([DD-029](design-decisions.md#dd-029)) |
 | Written by | scada-sim, once per tag at startup | scada-selector, on receipt **and on `METADATA` request** |
-| Late joiner gets history? | Yes — durability | **No** — request it |
+| Late joiner gets history? | Yes — durability | Yes — durability |
 
 Three properties worth stating because they are easy to get wrong:
 
@@ -328,12 +328,9 @@ Three properties worth stating because they are easy to get wrong:
   Filtering it would deadlock discovery: a client cannot ask for a tag it cannot
   see. The volume argument for filtering does not apply — `MetaData` is written once
   per tag.
-- **Durability is not carried across the boundary — the catalogue is requested.**
-  `TRANSIENT_LOCAL` delivers history to a late joiner only when **both** the writer
-  and the reader are `RELIABLE` (verified against 7.7.0), and the web side is
-  `BEST_EFFORT` ([DD-029](design-decisions.md#dd-029)). So a late-joining scada-web
-  gets no catalogue by subscribing; it asks, over the one channel that is still
-  reliable, and retries until its map is populated. Values need no equivalent
+- **Durability is carried for metadata on both domains.** Metadata writers and
+  readers use `RELIABLE` + `TRANSIENT_LOCAL`, so a late-joining scada-web receives
+  the latest catalogue sample per uid by subscribing. Values need no equivalent
   because they are periodic — a late joiner waits at most one publish period.
 - **`Command_t::METADATA` is therefore the bootstrap path, not a fallback.** The
   selector services it by rewriting instances from its field-side reader cache. It
@@ -344,12 +341,13 @@ Three properties worth stating because they are easy to get wrong:
 
 The map still serves two purposes at once, which was always the main argument for
 scada-web owning it (§6.2): the **tag catalogue** for name-based lookup, and **view
-enrichment** for the mapping engine. Where the bytes come from does not change who
+enrichment** for `views.py`. Where the bytes come from does not change who
 interprets them.
 
-`scada_web/config.yaml` still subscribes to `PLC::MetaData` directly today, because
-the selector does not exist yet and the PoC works. It switches to
-`PLC::SelectedMetaData` when the selector lands.
+The pre-selector local PoC config may still subscribe to `PLC::MetaData` directly
+while the selector does not exist. That is not the target topology: when the
+selector lands, scada-web moves to domain 1 and reads `PLC::SelectedMetaData`
+only.
 
 ### 4.4 Unchanged
 
@@ -382,13 +380,11 @@ This is a small amount of code and a well-known source of bugs. Requirements:
 
 - **SR-001** scada-web MUST refcount uid interest across clients, enabling a uid
   on the 0→1 transition and disabling it on 1→0.
-- **SR-001a** Interest is **not just a count** — it carries a rate
-  ([DD-027](design-decisions.md#dd-027)). Two clients watching one tag at 1 Hz
-  and 10 Hz means the selector must be told the **fastest** requested rate, so
-  the aggregate is `max(rate)` over interested clients, recomputed whenever a
-  client joins, leaves, or changes rate. scada-web MAY decimate further per client
-  from that shared stream. Getting this wrong is silent: the slow client is fine
-  and the fast one is merely sluggish, so it will not show up in a smoke test.
+- **SR-001a** Minimum separation is global runtime state
+  ([DD-027](design-decisions.md#dd-027)), not part of the per-client interest key.
+  When the web UI changes it, scada-web MUST resend `ADD` for all active uids so
+  the selector applies the new global value everywhere. scada-web MAY decimate
+  further per client from that shared stream.
 - **SR-002** Abrupt client disconnection MUST decrement that client's interest and
   recompute the aggregate rate. A dropped TCP connection is the normal case, not
   the exceptional one.
@@ -498,8 +494,8 @@ edited.
 | Isolating the field side from soft-RT backpressure | 1 | **scada-selector** | — `KEEP_LAST` outbound is what enforces it |
 | Data model changes of any kind | 2 | **scada-web** | scada-selector — Role 1 is selection only |
 | uid→metadata lookup and the map itself | 2 | **scada-web** | scada-selector (§6.2, DD-024 — unchanged by DD-028, which moved transport only) |
-| Wire type → slim view schema | 2 | **scada-web** | — |
-| DynamicData ⇄ JSON | 2 | **scada-web** | — |
+| Wire type → slim view schema | 2 | **scada-web** (`views.py`) | — |
+| Generated DDS samples ⇄ view JSON | 2 | **scada-web** | — |
 | Per-client interest refcount | 2 | **scada-web** | scada-selector (it sees one aggregate consumer) |
 | Per-client demux | 2 | **scada-web** | — |
 | Tag catalogue / name lookup | 2 | **scada-web** | — same map as the view lookup |

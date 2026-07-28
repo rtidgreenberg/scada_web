@@ -1530,11 +1530,11 @@ VOLATILE on most Connext installs). The sim's MetaData writer is RELIABLE +
 TRANSIENT_LOCAL. A VOLATILE reader cannot receive TRANSIENT_LOCAL history — so if
 the gateway starts after the sim, it never gets MetaData.
 
-Per system-architecture.md §4.3 / DD-029, the **final design** deliberately
-uses BEST_EFFORT + VOLATILE on the web side (after the selector exists and the
-catalogue is requested). But **right now** the gateway talks directly to the sim
-(the selector doesn't exist), so it needs matching QoS to receive the startup
-burst.
+Per system-architecture.md §4.3 / DD-029, the final design keeps selected value
+and metadata streams RELIABLE + TRANSIENT_LOCAL on the web side so late joiners
+receive the latest sample per uid. The current pre-selector gateway talks
+directly to the sim, so it uses the same metadata QoS contract to receive the
+startup burst.
 
 **Options.**
 
@@ -1949,8 +1949,9 @@ raw DDS wire JSON, not the slim view schema promised by the architecture.
 - **Blocks:** Event-loop starvation under load
 - **Raised:** 2026-07-27 (scada-web code review)
 - **Decision:** 2026-07-27 — [DD-047](design-decisions.md#dd-047). Option (c): `rti.asyncio`'s
-  WaitSet-backed `take_async()` replaces the poll loop. One asyncio task per
-  reader, wakes only on data arrival, no blocking calls in the event loop.
+  WaitSet-backed dispatcher replaces the poll loop. One asyncio task per reader
+  wakes only on data arrival and uses normal `reader.read()` so REST calls can
+  read the latest retained sample later.
 
 **Context.** `DdsGateway._read_loop` is an `async def` that does
 `await asyncio.sleep(0.05)` between polls, but the `self.on_sample(...)` call is

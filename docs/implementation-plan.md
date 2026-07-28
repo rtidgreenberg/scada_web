@@ -5,17 +5,20 @@
 
 ---
 
-## Phase 1: End-to-End Demo with WIS
+## Phase 1: Typed SCADA PoC
 
-**Goal:** Live data from simulated field devices displayed in a browser, proving
-the DDS pipeline works before building custom software.
+**Goal:** Live data from simulated field devices displayed in a browser through
+the target component boundaries: scada-sim on the field domain, scada-selector as
+the only hard-RT/soft-RT DDS conduit, scada-web on the web domain, and the browser
+over REST/WebSocket.
 
 ```
-sim/                    scada-selector         WIS (off-the-shelf)       Browser
-┌────────────┐          ┌──────────────┐       ┌──────────────────┐      ┌─────┐
-│ field_sim  │──DDS───▶│ compiled C++ │──DDS─▶│ RTI Web Int Svc  │─HTTP─▶│ GUI │
-│ plc_pub    │          │ uid gating   │       │ (stock, no mods) │◀─────│     │
-└────────────┘          └──────────────┘       └──────────────────┘      └─────┘
+sim/                    scada-selector         scada_web (Python)        Browser
+┌────────────┐ domain 0 ┌──────────────┐ domain 1 ┌────────────────┐     ┌─────┐
+│ field_sim  │──DDS───▶│ compiled C++ │──DDS───▶│ generated types │─HTTP▶│ GUI │
+│ plc_pub    │          │ fixed uid    │          │ views.py       │◀─WS─│     │
+└────────────┘          │ range + QoS  │          │ server.py      │     └─────┘
+                        └──────────────┘          └────────────────┘
 ```
 
 ### Deliverables
@@ -23,67 +26,66 @@ sim/                    scada-selector         WIS (off-the-shelf)       Browser
 | # | Component | Work | Status |
 |---|---|---|---|
 | 1.1 | **scada-sim** | Already exists (`sim/`). Publishes `PLC::MetaData` + `PLC::IdValue` on domain 0. | Done |
-| 1.2 | **scada-selector** | Compiled-type C++ app. Subscribes to `IdValue`, holds enabled-uid set, republishes enabled tags on `PLC::SelectedValue`. Receives `ValueRequest` (ADD/DELETE) commands. | Not started |
-| 1.3 | **WIS config** | XML config for RTI Web Integration Service: participants, types (from IDL→XML), readers on `SelectedValue` + `MetaData`, writer on `ValueRequest`. | Not started |
-| 1.4 | **Browser GUI** | Minimal web page that hits WIS REST to subscribe (POST ValueRequest), polls/streams tag values, and renders a basic mimic with trends. | Not started |
+| 1.2 | **scada-selector** | Compiled-type C++ app. Bridges domain 0 → domain 1, pre-enables the fixed PoC uid range (DD-039), republishes values on `PLC::SelectedValue`, and forwards metadata on `PLC::SelectedMetaData`. | Not started |
+| 1.3 | **scada_web gateway** | Python generated-type readers on domain 1 selected topics; `views.py` maps generated DDS samples to slim web-facing dataclasses (DD-052/DD-053). | Scaffolded; target-topic switch not done |
+| 1.4 | **Browser GUI** | Minimal HMI that consumes latest-value WebSocket pushes and keeps a client-side trend buffer. | Not started |
 
 ### Phase 1 Success Criteria
 
-- Operator opens the GUI, selects tags → values stream live from the sim
-- Adding/removing tags is immediate (refcount through WIS→ValueRequest→selector)
-- MetaData (names, limits) populates the display on connect (TRANSIENT_LOCAL)
-- No custom middleware — stock WIS only
+- Operator opens the GUI and sees live values from the sim via `SelectedValue`
+- scada-web has no field-side participant: no reader on domain 0 and no direct subscription to `PLC::IdValue` or `PLC::MetaData`
+- Metadata for the configured PoC uid range reaches scada-web on `SelectedMetaData`
+- Web-side selected topics use `BEST_EFFORT` + `VOLATILE`; `ValueRequest` remains the one reliable keep-all exception when dynamic selection is added
+- Browser receives typed view JSON, not raw DDS wire shape
 
 ### Phase 1 Constraints
 
-- WIS exposes the **raw wire type** (Value_t union, char[32] strings, nested limits) — the GUI must handle it directly
-- No per-field mapping, no union projection, no unit conversion on the server side
-- This is intentionally ugly on the client — it motivates Phase 2
+- The PoC uses a configured uid range instead of dynamic catalogue discovery (DD-039)
+- Name-based lookup, alarms, historian, and per-key reliability classes are out of scope
+- Dynamic `ValueRequest` ADD/DELETE, refcounting, and selector restart reconciliation are follow-up work unless the demo needs runtime selection
 
 ---
 
-## Phase 2: scada_web Replaces WIS
+## Phase 2: Dynamic Selection and Catalogue Bootstrap
 
-**Goal:** The Python `scada_web` gateway replaces WIS, adding the mapping/
-transformation layer that gives clients a clean view schema decoupled from
-the wire type.
+**Goal:** Add the runtime selection and catalogue behavior that the fixed-range
+PoC deliberately avoids, without weakening the selector boundary.
 
 ```
-sim/                    scada-selector         scada_web (Python)        Browser
-┌────────────┐          ┌──────────────┐       ┌──────────────────┐      ┌─────┐
-│ field_sim  │──DDS───▶│ compiled C++ │──DDS─▶│ gateway.py       │─HTTP─▶│ GUI │
-│ plc_pub    │          │ uid gating   │       │ mapping.py      │◀─WS──│     │
-└────────────┘          └──────────────┘       │ interest.py      │      └─────┘
-                                               │ server.py        │
-                                               └──────────────────┘
+Browser subscribe/unsubscribe
+  │
+  ▼
+scada_web InterestManager ──ValueRequest(RELIABLE + KEEP_ALL)──▶ scada-selector
+  ▲                                                            │
+  └──────────── SelectedValue / SelectedMetaData ◀─────────────┘
 ```
 
 ### Deliverables
 
 | # | Component | Work | Status |
 |---|---|---|---|
-| 2.1 | **scada_web gateway** | Wire type loading + dynamic subscription (from YAML config). | Done |
-| 2.2 | **Mapping engine** | `mapping.py` — union projection (Value_t → scalar), char[32] → string via `to_json()` + char-array fixer (DD-045). | Done |
-| 2.3 | **ValueRequest writer** | Back-channel DDS writer in `gateway.py` to send ADD/DELETE to scada-selector. | Not started |
-| 2.4 | **WebSocket streaming** | Server pushes mapped samples to subscribed clients in real time. | Done |
-| 2.5 | **Browser GUI update** | GUI consumes the clean view schema (`{uid, timestamp, value, name, limits}`) instead of raw DDS types. Simpler client code. | Not started |
+| 2.1 | **ValueRequest writer** | Back-channel DDS writer in `gateway.py` to send ADD/DELETE/METADATA to scada-selector with `RELIABLE` + `KEEP_ALL`. | Not started |
+| 2.2 | **Interest refcounting** | Aggregate per-client uid interest; send ADD on 0→1, DELETE on 1→0, and resend ADD for active uids when the global minimum separation changes. | Not started |
+| 2.3 | **Per-client demux** | Do not forward a selected sample to a client that did not request its uid. | Not started |
+| 2.4 | **Catalogue bootstrap** | Pick the `METADATA` all-sentinel value, request the catalogue, retry missing replies, and define UI readiness. | Not started |
+| 2.5 | **Selector restart reconciliation** | Detect selector restart/liveliness loss and resend the active interest set. | Not started |
 
 ### Phase 2 Success Criteria
 
-- Same operator workflow as Phase 1, but the JSON the GUI receives is:
+- Operator can add/remove tags at runtime and the selector output changes immediately
+- Two clients interested in the same uid do not disable each other accidentally
+- A late-joining or restarted scada-web obtains the metadata catalogue by request/retry, not by assuming web-side durability
+- The JSON the GUI receives remains the typed view shape:
   ```json
   {"uid": 5, "timestamp": 1722100000000, "value": 72.4, "name": "WTP1_PMP01_FLOW_PV"}
   ```
-  instead of the raw `Value_t` union with discriminator + nested char arrays
-- Mapping is declarative (YAML `views:` section) — no code change to reshape the output
-- WIS is fully removed from the pipeline
-- Adding a new topic type requires only a config change (no recompile, no IDL on the gateway)
 
 ### Phase 2 Validates
 
-- DD-002: DynamicData throughout (no generated types on the web side)
-- The mapping DSL thesis: declarative transformation on the web boundary
-- Wire type learning: gateway subscribes with no prior type knowledge
+- DD-023/DD-034/DD-036: the command stream remains unkeyed and reliable keep-all
+- DD-029: selected values and selected metadata are reliable/transient-local on the web side
+- DD-052/DD-053: scada-web remains generated-type Python with view classmethods
+- DD-044: scada-web stays on domain 1 and never regains a field-side endpoint
 
 ---
 
@@ -92,15 +94,15 @@ sim/                    scada-selector         scada_web (Python)        Browser
 ```
 Phase 1                              Phase 2
 ────────────────────────────────     ──────────────────────────────────
-1.1 sim (done)                       2.1 gateway (scaffolded)
-1.2 scada-selector ─────────────┐    2.2 mapping engine
-1.3 WIS config          ────────┤    2.3 ValueRequest writer
-1.4 browser GUI ────────────────┘    2.4 WebSocket streaming
-         │                           2.5 GUI update (consume clean JSON)
-         ▼                                    │
-    [Phase 1 demo]                            ▼
-         │                              [Phase 2 demo]
-         └── Phase 1 GUI complexity ──▶ motivates Phase 2
+1.1 sim (done)                       2.1 ValueRequest writer
+1.2 selector fixed range ───────┐    2.2 interest refcount + rates
+1.3 scada_web selected topics ──┤    2.3 per-client demux
+1.4 browser latest-value UI ────┘    2.4 catalogue request/retry
+      │                           2.5 selector restart reconciliation
+      ▼                                    │
+    [Typed PoC demo]                          ▼
+                 [Dynamic selection demo]
 ```
 
-Phase 2 reuses 1.1 (sim) and 1.2 (selector) unchanged. Only the web tier swaps.
+The historical WIS-compatible route remains useful as a comparison/reference, but
+it is no longer the implementation path for the accepted PoC.

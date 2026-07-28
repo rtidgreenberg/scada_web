@@ -4,25 +4,26 @@
 **Date:** 2026-07-28
 
 The `scada_web/` package is the Level 2 (supervisory) web gateway. It bridges
-the DDS global data space to browser clients over REST and WebSocket, applying a
-declarative mapping layer that decouples the client view schema from the wire
-type.
+selected DDS data to browser clients over REST and WebSocket. It applies typed
+Python view mappings that decouple the client view schema from the wire type.
 
 ---
 
 ## 1. Placement in the System
 
 ```
-Level 0/1 (sim/)              Level 2 (scada_web/)           Browser
-┌──────────────────┐          ┌──────────────────────┐       ┌──────────┐
-│ field_simulation │          │  config.yaml         │       │  HMI     │
-│ plc_publisher    │──DDS───▶│  PlcValue.xml→gateway│──HTTP─▶│  trends  │
-│ plc_types        │          │  interest → server   │◀─WS───│  alarms  │
-└──────────────────┘          └──────────────────────┘       └──────────┘
+Level 0/1 (sim/)       Level 2 (scada-selector)      Level 2 (scada_web/)      Browser
+┌──────────────────┐   ┌────────────────────────┐    ┌──────────────────┐    ┌──────────┐
+│ field_simulation │   │ field dp  →  web dp    │    │ generated types  │    │ HMI      │
+│ plc_publisher    │──▶│ SelectedValue/MetaData │───▶│ views.py/server  │───▶│ trends   │
+│ plc_types        │   │ ValueRequest ◀─────────│◀───│ interest.py      │◀──│ alarms   │
+└──────────────────┘   └────────────────────────┘    └──────────────────┘    └──────────┘
 ```
 
-scada_web never touches the simulated process (Level 0) and never speaks raw DDS
-to the browser. It owns the boundary between the two worlds.
+scada-selector owns the hard-real-time/soft-real-time DDS boundary. scada_web owns
+the presentation boundary: selected DDS samples in, view JSON over REST/WebSocket
+out. In the target topology scada_web has no field-domain participant and no
+direct readers on `PLC::IdValue` or `PLC::MetaData`.
 
 ---
 
@@ -33,7 +34,7 @@ scada_web/
 ├── __init__.py       Package root
 ├── __main__.py       Entry point: python -m scada_web --config ...
 ├── config.py         YAML config loader + validation
-├── config.yaml       Default configuration (wired to sim/)
+├── config.yaml       Pre-selector PoC configuration; target topology uses selected topics
 ├── gateway.py        DDS entity lifecycle (participants, readers)
 ├── interest.py       Per-client uid refcounting
 ├── mapping.py        [DEPRECATED] DynamicData char-array / union patching
@@ -100,6 +101,9 @@ participants:
   <name>:
     domain: <int>
 
+selection:
+  default_min_separation_ms: 250
+
 topics:
   - name: <TopicName>
     participant: <name>
@@ -108,6 +112,11 @@ topics:
       expression: "uid = %0"
       parameters: ["5"]
 ```
+
+`selection.default_min_separation_ms` initializes the web UI/runtime subscribe
+path. Browser messages may override the global runtime value with `period_ms` or
+`min_separation_ms`; the selector applies nonzero `period_ms` values as global
+minimum-separation updates.
 
 **Note:** View mappings are **not** in config — they are Python code in
 `views.py` (DD-053). This gives typed attribute access, IDE completion, and
@@ -169,10 +178,10 @@ The `InterestManager` implements all four system requirements from
 
 ```
 1. Load config.yaml
-2. Load XML types via QosProvider(types.xml)
-3. Create DomainParticipants (per config)
-4. Create Topic + DataReader for each configured topic immediately
-5. Start read loop (50ms poll)
+2. Load QoS profiles via QosProvider
+3. Create DomainParticipant(s) from config — target deployment is web domain only
+4. Create typed Topic + DataReader for each selected topic
+5. Start one `rti.asyncio` read task per reader
 6. Start FastAPI/uvicorn
 ```
 
@@ -249,7 +258,7 @@ List of topic subscriptions.
 |---|---|---|---|
 | `name` | string | yes | DDS topic name |
 | `participant` | string | yes | References a participant name |
-| `type` | string | yes | Fully-qualified type name from XML |
+| `type` | string | yes | Fully-qualified generated type name |
 | `qos_profile` | string | no | QoS profile name |
 | `filter.expression` | string | no | Content filter SQL expression |
 | `filter.parameters` | list | no | Filter parameter values |
@@ -278,7 +287,7 @@ in `views.py` — see §3.5 and [DD-053](../../docs/design-decisions.md#dd-053).
 |---|---|---|
 | GET | `/health` | Liveness + ready topics |
 | GET | `/api/v1/topics` | List ready and pending topics |
-| GET | `/api/v1/topics/{name}/type` | Type schema from XML library |
+| GET | `/api/v1/topics/{name}/type` | Type/view schema for the configured topic |
 
 ### WebSocket (`/ws`)
 
@@ -292,7 +301,7 @@ Client → Server messages:
 Server → Client pushes:
 
 ```json
-{"topic": "PLC::IdValue", "uid": 5, "data": {"uid": 5, "valueTime": 1722100000000, ...}}
+{"topic": "PLC::SelectedValue", "uid": 5, "data": {"uid": 5, "timestamp": 1722100000000, ...}}
 ```
 
 ---
@@ -327,12 +336,11 @@ Both share YAML-driven topology declaration.
 
 ### 9.1 Per-Key Reliability Classes (post-PoC)
 
-**Today, and for the PoC:** the web side is uniformly `BEST_EFFORT` + `VOLATILE`
-([DD-029](../../docs/design-decisions.md#dd-029)). That is the right default for
-display data — values are periodic, so the next sample supersedes a lost one before
-an operator could act on it, and best-effort output is what makes the
-[DD-028](../../docs/design-decisions.md#dd-028) boundary invariant structural rather
-than a matter of QoS discipline.
+**Today, and for the PoC:** selected value and selected metadata streams on the
+web side are `RELIABLE` + `TRANSIENT_LOCAL` + `KEEP_LAST(1)`
+([DD-029](../../docs/design-decisions.md#dd-029)). The reader cache holds the
+latest sample per uid, which matters for slow-changing selected values and repeat
+REST reads.
 
 **Why it will not hold forever:** not every tag is display data. Some values are
 **not idempotent** — a totalizer, an event or trip counter, a discrete state
@@ -351,13 +359,13 @@ key" necessarily means **partitioning tags across endpoints**, not tuning a poli
   `BEST_EFFORT` reader matches *both* — so critical samples arrive twice on the
   best-effort path. A second topic (`PLC::SelectedValueCritical`, `RELIABLE`, with a
   `RELIABLE` reader here) keeps matching unambiguous.
-- **`ValueRequest` gains a class per uid**, alongside `period_ms`. The selector then
-  routes each selected uid to the writer for its class — a small extension of the
-  per-uid state it already keeps ([DD-027](../../docs/design-decisions.md#dd-027)).
-- **Interest refcounting gains a third dimension**: `InterestManager` already
-  resolves competing rates as `max(rate)`; it would also resolve competing classes
-  as `max(criticality)`, so one client asking for reliable delivery upgrades the tag
-  for everyone.
+- **`ValueRequest` gains a class per uid**, alongside the global `period_ms`.
+  The selector then routes each selected uid to the writer for its class — a
+  small extension of the per-uid selection state it already keeps
+  ([DD-027](../../docs/design-decisions.md#dd-027)).
+- **Interest refcounting gains a second dimension** for class/criticality. The
+  minimum separation remains global; one client asking for reliable delivery
+  would upgrade the tag class for everyone.
 
 **Which reliability, and on which hop.** There are four separate delivery paths in
 this system, and only one of them is what this section is about:
