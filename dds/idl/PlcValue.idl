@@ -87,10 +87,10 @@ module PLC {
 	// republished on the selected-value topic, and how often.
 	//
 	// ADD enables forwarding for a uid (by name). DELETE and METADATA act on
-	// an existing uid. PERIOD sets the maximum publish rate for a uid: the
-	// selector forwards at most one sample per uid per period, discarding
-	// the rest. period_ms of 0 means forward every sample. Instance
-	// lifecycle notifications (dispose/unregister) are not rate limited.
+	// an existing uid. PERIOD sets the selector's global minimum separation
+	// between forwarded samples: 0 means use the selector YAML default;
+	// nonzero overrides the runtime setting. Instance lifecycle notifications
+	// (dispose/unregister) are not rate limited.
 	union ValueRequest switch (Command_t) {
 	case ADD:
 		AddRequest_t     addRequest;
