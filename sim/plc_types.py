@@ -101,21 +101,42 @@ def _build_command_t() -> dds.EnumType:
             dds.EnumMember("ADD", 0),
             dds.EnumMember("DELETE", 1),
             dds.EnumMember("METADATA", 2),
+            dds.EnumMember("PERIOD", 3),
         ],
     )
 
 
-def _build_value_request(command_t: dds.EnumType) -> dds.StructType:
+def _build_add_request_t() -> dds.StructType:
     return dds.StructType(
-        "ValueRequest",
+        "AddRequest_t",
         [
             dds.Member("uid", dds.Int32Type()),
             dds.Member("name", dds.StringType(MAX_NAME_LENGTH)),
-            dds.Member("command", command_t),
-            # period_ms: global selector minimum separation override.
-            # 0 uses the selector YAML default. Applies to ADD; ignored for
-            # DELETE and METADATA.
+        ],
+    )
+
+
+def _build_period_request_t() -> dds.StructType:
+    return dds.StructType(
+        "PeriodRequest_t",
+        [
             dds.Member("period_ms", dds.Uint32Type()),
+        ],
+    )
+
+
+def _build_value_request(
+    command_t: dds.EnumType,
+    add_request_t: dds.StructType,
+    period_request_t: dds.StructType,
+) -> dds.UnionType:
+    return dds.UnionType(
+        "ValueRequest",
+        command_t,
+        [
+            dds.UnionMember("addRequest", add_request_t, labels=[0]),       # ADD
+            dds.UnionMember("uid", dds.Int32Type(), labels=[1, 2]),         # DELETE, METADATA
+            dds.UnionMember("periodRequest", period_request_t, labels=[3]), # PERIOD
         ],
     )
 
@@ -130,7 +151,11 @@ class PlcTypes:
         self.metadata = _build_metadata(self.limits_t)
         self.id_value = _build_id_value(self.value_t)
         self.command_t = _build_command_t()
-        self.value_request = _build_value_request(self.command_t)
+        self.add_request_t = _build_add_request_t()
+        self.period_request_t = _build_period_request_t()
+        self.value_request = _build_value_request(
+            self.command_t, self.add_request_t, self.period_request_t
+        )
 
 
 def build_plc_types() -> PlcTypes:
