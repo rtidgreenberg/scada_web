@@ -27,7 +27,7 @@ import rti.connextdds as dds
 from field_simulation import build_tags
 from plc_types import build_plc_types, get_value_t
 
-ID_VALUE_TOPIC = "PLC::IdValue"
+ID_VALUE_TOPIC = "PLC::IdValueTopic"
 
 RATE_LIMIT_S = 5.0
 POLL_PERIOD_S = 0.1
