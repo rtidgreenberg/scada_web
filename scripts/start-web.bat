@@ -108,4 +108,10 @@ if "%DRY_RUN%"=="true" (
 )
 
 cd /d "%PROJECT_DIR%"
+
+REM ─── Ensure Python dependencies are installed ─────────────────────────────
+if exist requirements.txt (
+    python -m pip install --quiet -r requirements.txt
+)
+
 python -m scada_web %EXTRA_ARGS%

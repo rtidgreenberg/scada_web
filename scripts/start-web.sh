@@ -147,6 +147,11 @@ fi
 
 cd "$SCRIPT_DIR"
 
+# ─── Ensure Python dependencies are installed ────────────────────────────────
+if [[ -f requirements.txt ]]; then
+    python3 -m pip install --quiet -r requirements.txt
+fi
+
 # No tee: scada_web owns logs/scada_web.log through a RotatingFileHandler
 # (scada_web/__main__.py) and logs to the console through a StreamHandler. Teeing
 # stdout here gave the file two writers, and tee kept writing to the unlinked
