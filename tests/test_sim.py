@@ -27,6 +27,20 @@ from field_simulation import (
     TAG_COUNT,
 )
 
+# Band coverage is asserted by observing live traffic, so the observation window
+# has to be at least as long as the slowest band's period. plc_publisher seeds
+# every tag's first due time at `start + period`, so all tags in a band share a
+# due time and publish as one synchronized burst once per period rather than
+# trickling across it -- a window shorter than the period therefore misses the
+# band entirely for part of every cycle rather than merely seeing fewer samples.
+# At 5s against the 10s band this test was a coin flip: it passed standalone
+# (fixture sleeps happened to straddle the burst) and failed in the full suite,
+# where the phase depends on how long the preceding modules took.
+#
+# Derived from publish_period_s rather than hardcoded so it tracks _RATE_BANDS.
+SLOWEST_PERIOD_S = max(publish_period_s(uid) for uid in range(1, TAG_COUNT + 1))
+BAND_OBSERVE_S = SLOWEST_PERIOD_S + 2.0  # margin for scheduling + DDS delivery
+
 
 class TestFieldSimulation:
     """Unit-level tests for the process model (no DDS required)."""
@@ -166,13 +180,26 @@ class TestPlcPublisherDDS:
     def test_idvalue_covers_multiple_bands(self, sim_process, dds_subscriber):
         """Samples should arrive from both fast and slow uid bands."""
         reader = dds_subscriber["value_reader"]
-        time.sleep(5.0)
+        time.sleep(BAND_OBSERVE_S)  # must exceed SLOWEST_PERIOD_S — see above
         samples = reader.take()
         valid = [s for s in samples if s.info.valid]
 
         uids = {s.data["uid"] for s in valid}
         fast_uids = {u for u in uids if u <= 100}
         slow_uids = {u for u in uids if u > 300}
-        # Both bands should have produced at least some samples
-        assert len(fast_uids) > 0, "No samples from fast band (uid 1-100)"
-        assert len(slow_uids) > 0, "No samples from slow band (uid 301-500)"
+
+        # Assert the precondition before the property, so an undelivering
+        # pipeline reports as itself rather than as a missing band.
+        assert valid, (
+            f"no IdValue samples at all in {BAND_OBSERVE_S:.0f}s — "
+            "publisher not delivering"
+        )
+        assert fast_uids, (
+            f"no samples from fast band (uid 1-100) in {BAND_OBSERVE_S:.0f}s; "
+            f"saw {len(uids)} uid(s): {sorted(uids)[:10]}"
+        )
+        assert slow_uids, (
+            f"no samples from slow band (uid 301-{TAG_COUNT}) in "
+            f"{BAND_OBSERVE_S:.0f}s (band period {SLOWEST_PERIOD_S:.0f}s); "
+            f"saw {len(uids)} uid(s): {sorted(uids)[:10]}"
+        )
