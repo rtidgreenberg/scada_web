@@ -1,7 +1,7 @@
 """YAML configuration loader for scada_web.
 
-Declares DDS participants, topic subscriptions, QoS, type library path,
-and mapping views in a single YAML file.
+Declares DDS participants, topic subscriptions, QoS, and type library path
+in a single YAML file.
 
 Types are loaded from an XML type library (generated from IDL via
 `rtiddsgen -convertToXml`). Each topic entry specifies its type_name
@@ -58,21 +58,6 @@ class WriterConfig:
     qos_profile: str | None = None
 
 
-@dataclass
-class MappingFieldConfig:
-    """Single field mapping: wire path → view name."""
-    wire: str       # DynamicData field path, e.g. "smoothedValue.float64Value"
-    view: str       # JSON output key, e.g. "value"
-    transform: str | None = None  # optional: "union_scalar", "char_array_string"
-
-
-@dataclass
-class ViewConfig:
-    """A view schema exposed to web clients for a given topic."""
-    name: str
-    topic: str  # references a TopicConfig.name
-    fields: list[MappingFieldConfig] = field(default_factory=list)
-
 
 @dataclass
 class ServerConfig:
@@ -100,7 +85,6 @@ class ScadaWebConfig:
     participants: list[ParticipantConfig] = field(default_factory=list)
     topics: list[TopicConfig] = field(default_factory=list)
     writers: list[WriterConfig] = field(default_factory=list)
-    views: list[ViewConfig] = field(default_factory=list)
     selection: SelectionConfig = field(default_factory=SelectionConfig)
     document_root: str = ""  # static dir to serve at "/", e.g. "UI"
     server: ServerConfig = field(default_factory=ServerConfig)
@@ -137,13 +121,6 @@ def _parse_filter(raw: dict[str, Any] | None) -> FilterConfig | None:
         parameters=raw.get("parameters", []),
     )
 
-
-def _parse_mapping_field(raw: dict[str, Any]) -> MappingFieldConfig:
-    return MappingFieldConfig(
-        wire=raw["wire"],
-        view=raw["view"],
-        transform=raw.get("transform"),
-    )
 
 
 def load_config(path: str | Path) -> ScadaWebConfig:
@@ -188,15 +165,6 @@ def load_config(path: str | Path) -> ScadaWebConfig:
             qos_profile=w.get("qos_profile"),
         ))
 
-    # Views
-    for v in raw.get("views", []):
-        fields = [_parse_mapping_field(f) for f in v.get("fields", [])]
-        cfg.views.append(ViewConfig(
-            name=v["name"],
-            topic=v["topic"],
-            fields=fields,
-        ))
-
     # Selection defaults
     selection = raw.get("selection", {})
     cfg.selection = SelectionConfig(
@@ -237,12 +205,6 @@ def _validate(cfg: ScadaWebConfig) -> None:
                 f"topic '{t.name}' references unknown participant '{t.participant}'")
         if not t.qos_profile:
             raise ValueError(f"topic '{t.name}' must specify qos_profile")
-    topic_names = {t.name for t in cfg.topics}
-    for v in cfg.views:
-        if v.topic not in topic_names:
-            raise ValueError(
-                f"view '{v.name}' references unknown topic '{v.topic}'")
-
     if cfg.writers and not cfg.qos_profiles:
         raise ValueError("config must specify qos_profiles when writers are declared")
     seen_writers: set[str] = set()

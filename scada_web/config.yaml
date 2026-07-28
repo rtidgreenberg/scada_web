@@ -73,47 +73,6 @@ writers:
     type: "PLC::ValueRequest"
     qos_profile: "presentation::value_request"
 
-# --- Historical view mappings ---
-# DD-052/DD-053 supersede config-driven mapping for the typed SCADA gateway.
-# View mappings now live in scada_web/views.py. This section remains only as
-# legacy PoC input until config.py stops accepting it.
-views:
-  - name: tag_value
-    topic: "PLC::SelectedValueTopic"
-    fields:
-      - wire: uid
-        view: uid
-      - wire: valueTime
-        view: timestamp
-      - wire: smoothedValue
-        view: value
-        transform: union_scalar  # resolve Value_t union → bare scalar
-      - wire: rawValue
-        view: raw_value
-        transform: union_scalar
-
-  - name: tag_metadata
-    topic: "PLC::SelectedMetaDataTopic"
-    fields:
-      - wire: uid
-        view: uid
-      - wire: longName
-        view: name
-      - wire: hostname
-        view: source
-      - wire: limits.redHigh
-        view: alarm_hh
-        transform: union_scalar
-      - wire: limits.redLow
-        view: alarm_ll
-        transform: union_scalar
-      - wire: limits.yellowHigh
-        view: alarm_h
-        transform: union_scalar
-      - wire: limits.yellowLow
-        view: alarm_l
-        transform: union_scalar
-
 # --- Web server ---
 server:
   host: "0.0.0.0"
