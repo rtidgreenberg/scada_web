@@ -88,6 +88,11 @@ views:
       - wire: smoothedValue
         view: value
         transform: union_scalar  # resolve Value_t union → bare scalar
+
+# --- Server binding ---
+server:
+  host: "127.0.0.1"
+  port: 8080
       - wire: rawValue
         view: raw_value
         transform: union_scalar
