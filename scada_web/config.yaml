@@ -17,6 +17,11 @@ qos_profiles: dds/qos/profiles.xml
 # Initial global minimum separation for web-originated ADD requests. The selector
 # also has this value in its own YAML; browser/UI changes override it at runtime
 # by sending period_ms/min_separation_ms.
+#
+# Must be > 0. On the ValueRequest contract (dds/idl/PlcValue.idl) a PERIOD
+# command with period_ms == 0 tells the selector to restore ITS configured
+# default -- it does not request the full field rate, and the web side cannot
+# request that at all.
 selection:
   default_min_separation_ms: 250
 

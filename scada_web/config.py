@@ -86,6 +86,9 @@ class ServerConfig:
 @dataclass
 class SelectionConfig:
     """Selection defaults for web-originated ValueRequest commands."""
+    # Must be > 0. PERIOD with period_ms == 0 means "restore the selector's own
+    # default" on the ValueRequest contract, so 0 here would make every ADD send
+    # a command that does not mean what it appears to (see interest.py).
     default_min_separation_ms: int = 250
 
 
@@ -223,8 +226,8 @@ def _validate(cfg: ScadaWebConfig) -> None:
     """Cross-reference validation (participant refs exist, etc.)."""
     if not cfg.types_xml:
         raise ValueError("config must specify types.xml path")
-    if cfg.selection.default_min_separation_ms < 0:
-        raise ValueError("selection.default_min_separation_ms must be >= 0")
+    if cfg.selection.default_min_separation_ms <= 0:
+        raise ValueError("selection.default_min_separation_ms must be > 0")
     if cfg.topics and not cfg.qos_profiles:
         raise ValueError("config must specify qos_profiles when topics are declared")
     participant_names = {p.name for p in cfg.participants}
