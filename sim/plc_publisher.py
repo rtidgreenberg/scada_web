@@ -16,10 +16,10 @@ Publishing pattern, per the QoS-pattern comments already in the IDL:
     -> published once per tag at startup, RELIABLE + TRANSIENT_LOCAL so a
        late-joining subscriber (e.g. scada_web itself, or a test client)
        still receives each tag's static description.
-  - IdValue: "Use 1-many reliable QoS pattern ... reliability depends on
-    whether all values update periodically or upon change"
-    -> published periodically for every tag, RELIABLE + VOLATILE (the
-       process moves on; a new subscriber gets the next scan, not history).
+    - IdValue: "Use 1-many reliable QoS pattern ... reliability depends on
+        whether all values update periodically or upon change"
+        -> published periodically for every tag using the field-domain IdValue
+             writer profile from dds/qos/profiles.xml.
 
 Each tag publishes IdValue on its own schedule rather than a single shared
 period: field_simulation.publish_period_s(uid) assigns uid 1-100 to 2 Hz,
@@ -57,12 +57,12 @@ def _now_ms() -> int:
 
 def _metadata_writer_qos() -> dds.DataWriterQos:
     provider = dds.QosProvider(QOS_PROFILES_XML)
-    return provider.datawriter_qos_from_profile("sim::metadata")
+    return provider.datawriter_qos_from_profile("field::metadata")
 
 
 def _id_value_writer_qos() -> dds.DataWriterQos:
     provider = dds.QosProvider(QOS_PROFILES_XML)
-    return provider.datawriter_qos_from_profile("sim::idvalue")
+    return provider.datawriter_qos_from_profile("field::idvalue")
 
 
 def _write_metadata(

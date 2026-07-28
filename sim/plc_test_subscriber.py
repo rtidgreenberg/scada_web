@@ -28,20 +28,16 @@ from field_simulation import build_tags
 from plc_types import build_plc_types, get_value_t
 
 ID_VALUE_TOPIC = "PLC::IdValueTopic"
+QOS_PROFILES_XML = str(Path(__file__).resolve().parent.parent / "dds" / "qos" / "profiles.xml")
 
 RATE_LIMIT_S = 5.0
 POLL_PERIOD_S = 0.1
 RATE_REPORT_PERIOD_S = 4.0
 
 
-def _id_value_reader_qos(participant: dds.DomainParticipant) -> dds.DataReaderQos:
-    # Matches plc_publisher.py's writer QoS so it's compatible/reliable.
-    qos = participant.default_datareader_qos
-    qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-    qos.durability.kind = dds.DurabilityKind.VOLATILE
-    qos.history.kind = dds.HistoryKind.KEEP_LAST
-    qos.history.depth = 1
-    return qos
+def _id_value_reader_qos() -> dds.DataReaderQos:
+    provider = dds.QosProvider(QOS_PROFILES_XML)
+    return provider.datareader_qos_from_profile("field::idvalue")
 
 
 def run(domain_id: int) -> None:
@@ -53,7 +49,7 @@ def run(domain_id: int) -> None:
 
     id_value_topic = dds.DynamicData.Topic(participant, ID_VALUE_TOPIC, types.id_value)
     id_value_reader = dds.DynamicData.DataReader(
-        subscriber, id_value_topic, _id_value_reader_qos(participant)
+        subscriber, id_value_topic, _id_value_reader_qos()
     )
 
     print(
