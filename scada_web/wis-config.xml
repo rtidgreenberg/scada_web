@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="file:///D:/RTI/rti_connext_dds-7.7.0/resource/schema/rti_web_integration_service.xsd">
+  <types>
+    <module name="PLC">
+      <const name="MAX_STRING_VALUE_LENGTH" type="int32" value="32"/>
+      <const name="MAX_HOSTNAME_LENGTH" type="int32" value="32"/>
+      <const name="MAX_NAME_LENGTH" type="int32" value="32"/>
+      <typedef name="Hostname_t" stringMaxLength="PLC::MAX_HOSTNAME_LENGTH" type="string"/>
+      <typedef name="Name_t" stringMaxLength="PLC::MAX_NAME_LENGTH" type="string"/>
+      <typedef name="ValueTime_t" type="int64"/>
+      <typedef name="UniqueId_t" type="int32"/>
+      <enum name="ValueKind_t">
+        <enumerator name="KIND_STRING"/>
+        <enumerator name="KIND_INT32"/>
+        <enumerator name="KIND_INT64"/>
+        <enumerator name="KIND_FLOAT32"/>
+        <enumerator name="KIND_FLOAT64"/>
+      </enum>
+      <union name="Value_t" nested="true">
+        <discriminator type="nonBasic" nonBasicTypeName="PLC::ValueKind_t"/>
+        <case>
+          <caseDiscriminator value="(PLC::KIND_STRING)"/>
+          <member name="stringValue" type="char8" arrayDimensions="(PLC::MAX_STRING_VALUE_LENGTH)"/>
+        </case>
+        <case>
+          <caseDiscriminator value="(PLC::KIND_INT32)"/>
+          <member name="int32Value" type="int32"/>
+        </case>
+        <case>
+          <caseDiscriminator value="(PLC::KIND_INT64)"/>
+          <member name="int64Value" type="int64"/>
+        </case>
+        <case>
+          <caseDiscriminator value="(PLC::KIND_FLOAT32)"/>
+          <member name="float32Value" type="float32"/>
+        </case>
+        <case>
+          <caseDiscriminator value="(PLC::KIND_FLOAT64)"/>
+          <member name="float64Value" type="float64"/>
+        </case>
+      </union>
+      <struct name="Limits_t">
+        <member name="redHigh" type="nonBasic" nonBasicTypeName="PLC::Value_t"/>
+        <member name="redLow" type="nonBasic" nonBasicTypeName="PLC::Value_t"/>
+        <member name="yellowHigh" type="nonBasic" nonBasicTypeName="PLC::Value_t"/>
+        <member name="yellowLow" type="nonBasic" nonBasicTypeName="PLC::Value_t"/>
+        <member name="greenHigh" type="nonBasic" nonBasicTypeName="PLC::Value_t"/>
+        <member name="greenLow" type="nonBasic" nonBasicTypeName="PLC::Value_t"/>
+        <member name="active" type="boolean"/>
+      </struct>
+      <struct name="MetaData">
+        <member name="uid" type="nonBasic" nonBasicTypeName="PLC::UniqueId_t" key="true"/>
+        <member name="valueTime" type="nonBasic" nonBasicTypeName="PLC::ValueTime_t"/>
+        <member name="hostname" type="nonBasic" nonBasicTypeName="PLC::Hostname_t"/>
+        <member name="limits" type="nonBasic" nonBasicTypeName="PLC::Limits_t"/>
+        <member name="longName" type="nonBasic" nonBasicTypeName="PLC::Name_t"/>
+      </struct>
+      <struct name="IdValue">
+        <member name="uid" type="nonBasic" nonBasicTypeName="PLC::UniqueId_t" key="true"/>
+        <member name="valueTime" type="nonBasic" nonBasicTypeName="PLC::ValueTime_t"/>
+        <member name="smoothedValue" type="nonBasic" nonBasicTypeName="PLC::Value_t"/>
+        <member name="rawValue" type="nonBasic" nonBasicTypeName="PLC::Value_t"/>
+      </struct>
+      <enum name="Command_t">
+        <enumerator name="ADD"/>
+        <enumerator name="DELETE"/>
+        <enumerator name="METADATA"/>
+      </enum>
+      <struct name="ValueRequest">
+        <member name="uid" type="nonBasic" nonBasicTypeName="PLC::UniqueId_t"/>
+        <member name="name" type="nonBasic" nonBasicTypeName="PLC::Name_t"/>
+        <member name="command" type="nonBasic" nonBasicTypeName="PLC::Command_t"/>
+        <member name="period_ms" type="uint32"/>
+      </struct>
+    </module>
+  </types>
+
+  <web_integration_service name="ScadaWeb">
+    <application name="ScadaWebApp">
+      <domain_participant name="Plant" domain_id="0">
+        <register_type name="MetaDataType" type_ref="PLC::MetaData"/>
+        <register_type name="IdValueType" type_ref="PLC::IdValue"/>
+        <register_type name="ValueRequestType" type_ref="PLC::ValueRequest"/>
+
+        <topic name="PLC::MetaDataTopic" register_type_ref="MetaDataType"/>
+        <topic name="PLC::IdValueTopic" register_type_ref="IdValueType"/>
+        <topic name="PLC::ValueRequestTopic" register_type_ref="ValueRequestType"/>
+
+        <subscriber name="MetaDataSubscriber">
+          <data_reader name="MetaDataReader" topic_ref="PLC::MetaDataTopic"/>
+        </subscriber>
+
+        <subscriber name="IdValueSubscriber">
+          <data_reader name="IdValueReader" topic_ref="PLC::IdValueTopic"/>
+        </subscriber>
+
+        <publisher name="ControlPublisher">
+          <data_writer name="ValueRequestWriter" topic_ref="PLC::ValueRequestTopic"/>
+        </publisher>
+      </domain_participant>
+    </application>
+  </web_integration_service>
+</dds>
