@@ -1362,10 +1362,23 @@ plane concern with its own rate policy.
 ---
 
 ### DD-029
-**The web side is `BEST_EFFORT`. The control channel is the one stated exception,
-and the tag catalogue is served on request rather than by durability.**
+**The presentation side is `RELIABLE` + `TRANSIENT_LOCAL`, so late-joining
+scada-web readers get the latest value and the whole catalogue per uid. The
+boundary invariant is therefore maintained by QoS discipline rather than
+guaranteed by the reliability kind.**
 
-- **Status:** ACCEPTED · **Date:** 2026-07-27 · **Amends:** [DD-028](#dd-028) (QoS of the outbound topics) · **Affects:** DD-023, DD-027, OQ-25, OQ-26, SR-003, system-architecture §2, §4.3, §4.4, scada-select-architecture §3.4, §3.6, §3.8, §4.4, §6
+- **Status:** ACCEPTED · **Date:** 2026-07-27 (revised 2026-07-28) · **Amends:** [DD-028](#dd-028) (QoS of the outbound topics) · **Affects:** DD-023, DD-027, DD-042, OQ-25, OQ-26, SR-003, system-architecture §2, §4.3, §4.4, scada-select-architecture §3.3, §3.4, §3.6, §3.8, §4.4, §6, §8
+
+> **Revision note.** This entry was originally titled "The web side is
+> `BEST_EFFORT`" and argued that a best-effort presentation side removed the
+> back-pressure failure mode by construction. That was reversed for the reason in
+> **Context** below: some selected values change too slowly for a late-joining
+> reader to wait for the next publish. The decision table has carried
+> `RELIABLE` since then, and
+> [dds/qos/profiles.xml](../dds/qos/profiles.xml) implements it; the prose below is
+> now consistent with both. The best-effort argument is retained under
+> **Alternatives** because it remains the strongest reason one might reverse this
+> again.
 
 **Decision.** Dynamic value traffic on the field domain remains optimized for the
 sim/selector field hop. On the presentation domain, selected values and selected
@@ -1380,13 +1393,16 @@ receive the latest sample per uid, including slow-changing values:
 | Web | `PLC::SelectedMetaData` | **`RELIABLE`** | `TRANSIENT_LOCAL` |
 | Web | `PLC::ValueRequest` | **`RELIABLE` + `KEEP_ALL`** — the exception | `VOLATILE` |
 
-**The exception is deliberate and narrow.** `ValueRequest` carries operator intent
-on an unkeyed command stream, where a lost `ADD` means a tag silently never turns
-on — the failure [DD-023](#dd-023) exists to prevent, and it does not self-heal
-because nothing repeats the command. It is also the low-volume, human-paced
-direction, so reliability there costs nothing that matters. Note the inbound
-reader being `RELIABLE` cannot block the selector's dispatch thread; only writers
-block.
+**`ValueRequest`'s `KEEP_ALL` is what now distinguishes it.** Every stream in the
+table is `RELIABLE`, so the reliability *kind* is no longer what sets the control
+channel apart — its history is. `ValueRequest` carries operator intent on an unkeyed
+command stream, where a lost `ADD` means a tag silently never turns on — the failure
+[DD-023](#dd-023) exists to prevent, and it does not self-heal because nothing
+repeats the command. `KEEP_ALL` is therefore correct here and nowhere else: this is
+a queue of commands, not a current-value stream, and every element matters. It is
+also the low-volume, human-paced direction, so the cost is nil. Note that the
+inbound reader being `RELIABLE` + `KEEP_ALL` cannot block the selector's dispatch
+thread; only writers block, and the writer for this topic is in scada-web.
 
 **Context.** The field side runs the process and the web side draws pictures of
 it. Some selected values update slowly enough that waiting for the next publish is
@@ -1394,70 +1410,89 @@ not acceptable for late-joining scada-web readers. Presentation selected values
 therefore use `RELIABLE` + `TRANSIENT_LOCAL` with `KEEP_LAST(1)`: the latest value
 per uid is available without preserving an unbounded history.
 
-**This makes the DD-028 boundary invariant structural rather than disciplinary.**
-DD-028 required `KEEP_LAST` on outbound writers so that soft-side congestion could
-not block the dispatch thread and stall field-side reception. A `BEST_EFFORT`
-writer has no send window to exhaust, no unacknowledged samples to retain, and no
-ACK to wait for — it cannot block on a slow consumer at all. `KEEP_LAST` stays as
-defense in depth and as documentation of intent, but the reliability kind is now
-what enforces the invariant. **The strongest argument for this decision is that it
-removes a failure mode rather than mitigating one.**
+**This keeps the DD-028 boundary invariant disciplinary rather than structural, and
+that is the real cost of this decision.** DD-028 required `KEEP_LAST` on outbound
+writers so that soft-side congestion could not block the dispatch thread and stall
+field-side reception. With a `RELIABLE` writer that requirement is load-bearing
+again, and it needs two companions:
 
-**The catalogue cannot use durability, and this was verified rather than assumed.**
-`TRANSIENT_LOCAL` delivers historical samples to a late joiner **only if both the
-DataWriter and the DataReader are `RELIABLE`** (Connext 7.7.0; sources below). A
-late-joining `BEST_EFFORT` reader receives only samples written after matching
-completes — so DD-028's "the selector is the durability re-origin" does not
-survive contact with this decision.
+1. **`KEEP_LAST 1`, never `KEEP_ALL`,** on both presentation writers — a
+   `KEEP_LAST` writer replaces per instance instead of retaining, so there is no
+   queue to fill and block on.
+2. **An explicitly unlimited reliable send window.**
+   `rtps_reliable_writer.max_send_window_size` throttles `write()` when a reader
+   stops ACKing, *independently* of history depth; the default is
+   `LENGTH_UNLIMITED`, but a strict-reliable builtin snippet pins it to 40. Both
+   writers state it explicitly so that inheriting a profile cannot silently
+   reintroduce back-pressure.
+3. **A short `max_blocking_time` (100 ms), and a timeout is a counted drop.** This
+   is the backstop for 1 and 2: the selector catches `dds::core::TimeoutError`,
+   counts it, and continues — never retrying on the dispatch thread. A nonzero
+   count means one of the two rules above has been broken.
 
-**So the catalogue is request-driven.** scada-web asks; the selector answers by
-rewriting instances out of its field-side reader cache:
+**The catalogue uses durability, and the constraint on it was verified rather than
+assumed.** `TRANSIENT_LOCAL` delivers historical samples to a late joiner **only if
+both the DataWriter and the DataReader are `RELIABLE`** (Connext 7.7.0; sources
+below). That is satisfied here, which is exactly why this decision can keep
+DD-028's "the selector is the durability re-origin" — and why the intermediate
+best-effort draft could not.
 
-- The **request** travels on `ValueRequest` — the one channel that is still
-  `RELIABLE`, so the ask itself cannot be silently lost.
-- `Command_t::METADATA` with a **sentinel `uid` meaning "all"** bootstraps the whole
-  catalogue. A per-uid request cannot bootstrap: scada-web does not know the uid
-  list until it has the catalogue. This is a semantic addition to the existing
-  field, not an IDL change — no new field and no new type. The concrete value
-  (`-1` or `0`) is a contract detail for whoever implements it first.
-- **scada-web retries what it did not get.** It knows what it asked for, so a lost
-  reply is detectable and re-askable — the property a `BEST_EFFORT` reply needs to
-  be trustworthy, and one that durability would not have given it.
+**`Command_t::METADATA` is therefore a targeted re-read, not a bootstrap.**
+scada-web receives the catalogue from the writer cache on join; `METADATA` re-reads
+one uid out of the selector's field-side reader cache on demand. Consequences:
 
-**Alternatives.** (a) **Make `SelectedMetaData` a second reliable exception**
-(`RELIABLE` + `TRANSIENT_LOCAL`), which is RTI's own suggested split for
-"catalogue reliable, live stream best-effort" — rejected as the default because it
-reintroduces a blocking-capable writer on the boundary for a topic we can serve
-from a cache we already keep, but it is a **one-line change** if request/reply
-proves fiddly, and nothing else in this entry depends on it. (b) **Republish the
-catalogue from `on_publication_matched()`** — rejected: it is an application
-workaround rather than a documented mechanism, and it races. The callback means the
-*writer* matched, not that the remote reader is ready to receive, and with
-`BEST_EFFORT` a burst lost in that window is simply lost. (c) **Periodic
-re-announce of the whole catalogue** — rejected as the primary mechanism (it pays
-continuously for a startup problem) but reasonable as a configurable backstop,
-default off. (d) **`TopicQuery`** — the documented on-demand mechanism, and worth
-revisiting if request/reply over `ValueRequest` grows awkward.
+- The **sentinel `uid` meaning "all"** that the best-effort draft required is **not
+  implemented and not needed**. If a future case wants it, it remains a semantic
+  addition to the existing field rather than an IDL change.
+- **scada-web can still re-ask** for a uid it believes it is missing. That is a
+  diagnostic path now, not the mechanism the catalogue depends on.
+
+**Alternatives.** (a) **`BEST_EFFORT` on the presentation side** — the original
+form of this entry, and still the strongest argument against the current decision:
+a best-effort writer has no send window to exhaust, no unacknowledged samples to
+retain, and no ACK to wait for, so it **removes** the back-pressure failure mode
+instead of mitigating it, and no QoS discipline is required to keep the boundary
+safe. Rejected because it also denies a late-joining scada-web the latest value per
+uid, which for slow-changing tags means a blank or stale display for an unbounded
+time, and because it makes every lifecycle retraction lossy and never repeated.
+Reverse this decision if measurement ever shows presentation-side reliability
+intruding on the field side; the cost of reversing is the catalogue bootstrap and
+absence-as-staleness work described in the revision history. (b) **Split the two:
+`SelectedMetaData` reliable, `SelectedValue` best-effort** — RTI's own suggested
+"catalogue reliable, live stream best-effort" split, and the tidiest theory, since
+only the low-volume topic would ever be capable of blocking. Rejected because it
+reintroduces lossy retractions exactly on the topic where §3.4 cares most about
+them, but it is a small change if the hot path proves to be the problem.
+(c) **Republish the catalogue from `on_publication_matched()`** — rejected: it is an
+application workaround rather than a documented mechanism, and it races. The
+callback means the *writer* matched, not that the remote reader is ready to receive.
+(d) **Periodic re-announce of the whole catalogue** — unnecessary now that
+durability bootstraps it; reasonable only as a configurable backstop, default off.
+(e) **`TopicQuery`** — the documented on-demand mechanism, worth revisiting if the
+per-uid `METADATA` path grows awkward.
 
 **Consequences.**
 
-*The selector holds no durable state again.* DD-028's exception is withdrawn: no
-`TRANSIENT_LOCAL` writer, so no durability re-origination and no "empty catalogue
-during a selector restart" window. The field-side `MetaData` reader cache remains
-load-bearing — `RELIABLE` + `TRANSIENT_LOCAL` + `read()` rather than `take()` — and
-is now the *only* place the catalogue lives inside the selector.
+*DD-028's durability re-origination stands.* Both presentation writers are
+`TRANSIENT_LOCAL` + `KEEP_LAST 1`, so the selector re-originates durability across
+the boundary, and a selector restart therefore does have a window in which the
+catalogue is briefly empty from scada-web's point of view — bounded by how quickly
+the field-side `MetaData` reader refills. That reader cache remains load-bearing
+(`RELIABLE` + `TRANSIENT_LOCAL` + `read()` rather than `take()`), because
+`Command_t::METADATA` re-reads it.
 
-*Lifecycle notifications become lossy, and this is the real cost.* A dispose on
-`SelectedValue` or `SelectedMetaData` can be dropped, and unlike a value it is
-**never repeated**, so scada-web could display a tag the plant no longer has,
-indefinitely. `BEST_EFFORT` turns "this tag went away" from an event into an
-inference. Required mitigation: **scada-web treats absence as staleness** — no
-sample for a tag within N expected periods marks it stale on the display, which
-ISA-101 practice wants regardless of transport. Cheap adjunct: send disposes
-two or three times, since they are rare and tiny. This does not weaken
+*Lifecycle notifications are reliable, which is a real benefit of this form.* A
+dispose on `SelectedValue` or `SelectedMetaData` is delivered as long as the reader
+stays matched, so "this tag went away" is an event rather than an inference. Two
+caveats keep §3.4 honest: a retraction issued while scada-web is **disconnected**
+reaches it on reconnect only for instances still held in the writer's cache, and the
+selector must not filter lifecycle samples out on the way — a
+`DataState::new_data()` mask silently drops them, since it constrains instance state
+to `ALIVE`. **scada-web should still treat absence as staleness** — no sample for a
+tag within N expected periods marks it stale on the display — but as ISA-101 display
+practice rather than as compensation for a lossy transport. This does not weaken
 [scada-select-architecture](../scada_select/docs/scada-select-architecture.md)
-§3.4's rule that lifecycle events bypass the rate limit — it means that rule is no
-longer sufficient on its own.
+§3.4's rule that lifecycle events bypass the rate limit.
 
 *Loss becomes invisible at the receiver unless we look.* The selector must count
 what it wrote; scada-web cannot infer what never arrived. Whether a `BEST_EFFORT`

@@ -1,41 +1,59 @@
 <mxfile host="65bd71144e">
     <diagram id="dds-topic-topology" name="DDS Topic Topology">
-        <mxGraphModel dx="1332" dy="780" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="1332" dy="780" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1400" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
                 <mxCell id="dom15" value="&lt;b&gt;Domain 15 — Field&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;fontSize=14;fontStyle=1;arcSize=6;dashed=1;dashPattern=8 4;strokeWidth=2;spacingTop=4;" parent="1" vertex="1">
-                    <mxGeometry x="40" y="40" width="440" height="520" as="geometry"/>
+                    <mxGeometry x="40" y="40" width="430" height="560" as="geometry"/>
                 </mxCell>
                 <mxCell id="dom16" value="&lt;b&gt;Domain 16 — Presentation&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;fontSize=14;fontStyle=1;arcSize=6;dashed=1;dashPattern=8 4;strokeWidth=2;spacingTop=4;" parent="1" vertex="1">
-                    <mxGeometry x="780" y="40" width="480" height="520" as="geometry"/>
+                    <mxGeometry x="820" y="40" width="520" height="560" as="geometry"/>
+                </mxCell>
+                <mxCell id="dom15_subtitle" value="Raw PLC metadata and values" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=10;fontColor=#4f6f99;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="68" width="150" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="dom16_subtitle" value="Selected streams and browser commands" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=10;fontColor=#5e8a4f;" parent="1" vertex="1">
+                    <mxGeometry x="840" y="68" width="220" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_publish" value="Publish" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff8dc;strokeColor=#d6b656;fontSize=10;fontStyle=1;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="170" y="170" width="100" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_select" value="Select / Rate-limit" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f4ecf7;strokeColor=#9673a6;fontSize=10;fontStyle=1;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="575" y="285" width="130" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_present" value="Present" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0fff0;strokeColor=#82b366;fontSize=10;fontStyle=1;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="1020" y="170" width="100" height="24" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_control" value="Control feedback" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=#d79b00;fontSize=10;fontStyle=1;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="1010" y="480" width="130" height="24" as="geometry"/>
                 </mxCell>
                 <mxCell id="sim" value="&lt;b&gt;field_simulation&lt;/b&gt;&lt;br&gt;(PLC Simulator)&lt;br&gt;&lt;i&gt;sim/field_simulation.py&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;spacingTop=4;spacingBottom=4;shadow=1;" parent="1" vertex="1">
                     <mxGeometry x="120" y="80" width="220" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="selector" value="&lt;b&gt;scada_select&lt;/b&gt;&lt;br&gt;(Data Selector / Filter)&lt;br&gt;&lt;i&gt;scada_select/&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;spacingTop=4;spacingBottom=4;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="520" y="620" width="220" height="70" as="geometry"/>
+                    <mxGeometry x="510" y="330" width="280" height="80" as="geometry"/>
                 </mxCell>
                 <mxCell id="web" value="&lt;b&gt;scada_web&lt;/b&gt;&lt;br&gt;(Gateway + REST/WS API)&lt;br&gt;&lt;i&gt;scada_web/&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;spacingTop=4;spacingBottom=4;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="900" y="80" width="220" height="70" as="geometry"/>
+                    <mxGeometry x="1440" y="230" width="220" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="browser" value="&lt;b&gt;Browser HMI&lt;/b&gt;&lt;br&gt;(UI/index.html)&lt;br&gt;&lt;i&gt;WebSocket + REST&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;spacingTop=4;spacingBottom=4;shadow=1;dashed=1;" parent="1" vertex="1">
-                    <mxGeometry x="1360" y="80" width="200" height="70" as="geometry"/>
+                    <mxGeometry x="1440" y="390" width="220" height="70" as="geometry"/>
                 </mxCell>
-                <mxCell id="t_meta" value="&lt;b&gt;PLC::MetaDataTopic&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;Type: &lt;i&gt;PLC::MetaData&lt;/i&gt;&lt;br&gt;Key: &lt;i&gt;uid&lt;/i&gt;&lt;br&gt;QoS: RELIABLE, TRANSIENT_LOCAL&lt;br&gt;Pattern: State Data (KEEP_LAST 1)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0f7ff;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=14;spacingRight=14;spacingTop=4;shadow=1;strokeWidth=2;" parent="1" vertex="1">
-                    <mxGeometry x="80" y="200" width="280" height="110" as="geometry"/>
+                <mxCell id="t_meta" value="&lt;b&gt;T1&lt;/b&gt; PLC::MetaDataTopic" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0f7ff;strokeColor=#6c8ebf;fontSize=11;shadow=1;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="220" width="200" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="t_idval" value="&lt;b&gt;PLC::IdValueTopic&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;Type: &lt;i&gt;PLC::IdValue&lt;/i&gt;&lt;br&gt;Key: &lt;i&gt;uid&lt;/i&gt;&lt;br&gt;QoS: RELIABLE, T_LOCAL(W)/VOLATILE(R)&lt;br&gt;Pattern: Periodic Values (KEEP_LAST 10)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0f7ff;strokeColor=#6c8ebf;fontSize=11;align=left;spacingLeft=14;spacingRight=14;spacingTop=4;shadow=1;strokeWidth=2;" parent="1" vertex="1">
-                    <mxGeometry x="80" y="370" width="280" height="110" as="geometry"/>
+                <mxCell id="t_idval" value="&lt;b&gt;T2&lt;/b&gt; PLC::IdValueTopic" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0f7ff;strokeColor=#6c8ebf;fontSize=11;shadow=1;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="120" y="390" width="200" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="t_sel_meta" value="&lt;b&gt;PLC::SelectedMetaDataTopic&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;Type: &lt;i&gt;PLC::MetaData&lt;/i&gt;&lt;br&gt;Key: &lt;i&gt;uid&lt;/i&gt;&lt;br&gt;QoS: RELIABLE, TRANSIENT_LOCAL&lt;br&gt;Pattern: Filtered State Data" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0fff0;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=14;spacingRight=14;spacingTop=4;shadow=1;strokeWidth=2;" parent="1" vertex="1">
-                    <mxGeometry x="820" y="200" width="300" height="110" as="geometry"/>
+                <mxCell id="t_sel_meta" value="&lt;b&gt;T3&lt;/b&gt; PLC::SelectedMetaDataTopic" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0fff0;strokeColor=#82b366;fontSize=11;shadow=1;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="220" width="260" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="t_sel_val" value="&lt;b&gt;PLC::SelectedValueTopic&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;Type: &lt;i&gt;PLC::IdValue&lt;/i&gt;&lt;br&gt;Key: &lt;i&gt;uid&lt;/i&gt;&lt;br&gt;QoS: RELIABLE, VOLATILE(R)&lt;br&gt;Pattern: Rate-Limited Values" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0fff0;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=14;spacingRight=14;spacingTop=4;shadow=1;strokeWidth=2;" parent="1" vertex="1">
-                    <mxGeometry x="820" y="370" width="300" height="110" as="geometry"/>
+                <mxCell id="t_sel_val" value="&lt;b&gt;T4&lt;/b&gt; PLC::SelectedValueTopic" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0fff0;strokeColor=#82b366;fontSize=11;shadow=1;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="390" width="260" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="t_req" value="&lt;b&gt;PLC::ValueRequestTopic&lt;/b&gt;&lt;hr size=&quot;1&quot;&gt;Type: &lt;i&gt;PLC::ValueRequest&lt;/i&gt; (union)&lt;br&gt;Commands: ADD | DELETE | METADATA | PERIOD&lt;br&gt;QoS: RELIABLE&lt;br&gt;Pattern: Command Channel" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0fff0;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=14;spacingRight=14;spacingTop=4;shadow=1;strokeWidth=2;" parent="1" vertex="1">
-                    <mxGeometry x="1340" y="400" width="300" height="100" as="geometry"/>
+                <mxCell id="t_req" value="&lt;b&gt;T5&lt;/b&gt; PLC::ValueRequestTopic" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0fff0;strokeColor=#82b366;fontSize=11;shadow=1;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="520" width="260" height="40" as="geometry"/>
                 </mxCell>
                 <mxCell id="e_sim_meta" value="DW" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#fff2cc;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="sim" target="t_meta" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
@@ -43,119 +61,130 @@
                 <mxCell id="e_sim_idval" value="DW" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#fff2cc;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="sim" target="t_idval" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="60" y="150"/>
-                            <mxPoint x="60" y="340"/>
-                            <mxPoint x="220" y="340"/>
+                            <mxPoint x="175" y="180"/>
+                            <mxPoint x="60" y="180"/>
+                            <mxPoint x="60" y="360"/>
+                            <mxPoint x="220" y="360"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e_meta_sel" value="DR" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.15;entryY=0;entryDx=0;entryDy=0;" parent="1" source="t_meta" target="selector" edge="1">
+                <mxCell id="e_meta_sel" value="subscribe" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.15;entryY=0;entryDx=0;entryDy=0;" parent="1" source="t_meta" target="selector" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="220" y="340"/>
-                            <mxPoint x="520" y="340"/>
-                            <mxPoint x="520" y="580"/>
-                            <mxPoint x="553" y="580"/>
+                            <mxPoint x="220" y="300"/>
+                            <mxPoint x="573" y="300"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e_idval_sel" value="DR" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.35;entryY=0;entryDx=0;entryDy=0;" parent="1" source="t_idval" target="selector" edge="1">
+                <mxCell id="e_idval_sel" value="subscribe" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" parent="1" source="t_idval" target="selector" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e_sel_smeta" value="forward selected" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" parent="1" source="selector" target="t_sel_meta" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="290" y="595"/>
-                            <mxPoint x="597" y="595"/>
+                            <mxPoint x="800" y="350"/>
+                            <mxPoint x="800" y="280"/>
+                            <mxPoint x="1070" y="280"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e_sel_smeta" value="DW" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=0.65;exitY=0;exitDx=0;exitDy=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;" parent="1" source="selector" target="t_sel_meta" edge="1">
+                <mxCell id="e_sel_sval" value="forward selected" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="selector" target="t_sel_val" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e_smeta_web" value="subscribe" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#f8cecc;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="t_sel_meta" target="web" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e_sval_web" value="subscribe" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#f8cecc;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" parent="1" source="t_sel_val" target="web" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="663" y="350"/>
-                            <mxPoint x="895" y="350"/>
+                            <mxPoint x="1280" y="410"/>
+                            <mxPoint x="1280" y="283"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e_sel_sval" value="DW" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=0.85;exitY=0;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" parent="1" source="selector" target="t_sel_val" edge="1">
+                <mxCell id="e_web_req" value="request" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#fff4e6;dashed=1;dashPattern=6 4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="web" target="t_req" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="707" y="595"/>
-                            <mxPoint x="1045" y="595"/>
+                            <mxPoint x="1550" y="500"/>
+                            <mxPoint x="1230" y="500"/>
+                            <mxPoint x="1230" y="540"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e_smeta_web" value="DR" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#f8cecc;exitX=0.25;exitY=0;exitDx=0;exitDy=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;" parent="1" source="t_sel_meta" target="web" edge="1">
+                <mxCell id="e_req_sel" value="command" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#fff4e6;dashed=1;dashPattern=6 4;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="t_req" target="selector" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="895" y="175"/>
-                            <mxPoint x="955" y="175"/>
+                            <mxPoint x="790" y="540"/>
+                            <mxPoint x="790" y="370"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e_sval_web" value="DR" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#f8cecc;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" parent="1" source="t_sel_val" target="web" edge="1">
-                    <mxGeometry relative="1" as="geometry">
-                        <Array as="points">
-                            <mxPoint x="1045" y="340"/>
-                            <mxPoint x="1145" y="340"/>
-                            <mxPoint x="1145" y="175"/>
-                            <mxPoint x="1065" y="175"/>
-                        </Array>
-                    </mxGeometry>
-                </mxCell>
-                <mxCell id="e_web_req" value="DW" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#f8cecc;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="web" target="t_req" edge="1">
-                    <mxGeometry relative="1" as="geometry">
-                        <Array as="points">
-                            <mxPoint x="1300" y="115"/>
-                            <mxPoint x="1300" y="370"/>
-                            <mxPoint x="1490" y="370"/>
-                        </Array>
-                    </mxGeometry>
-                </mxCell>
-                <mxCell id="e_req_sel" value="DR" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#e1d5e7;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="t_req" target="selector" edge="1">
-                    <mxGeometry relative="1" as="geometry">
-                        <Array as="points">
-                            <mxPoint x="1490" y="655"/>
-                            <mxPoint x="740" y="655"/>
-                        </Array>
-                    </mxGeometry>
-                </mxCell>
-                <mxCell id="e_web_browser" value="WebSocket + REST" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;strokeWidth=2;fontSize=10;fontStyle=2;dashed=1;dashPattern=8 4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=blockThin;startFill=1;endArrow=blockThin;endFill=1;" parent="1" source="web" target="browser" edge="1">
+                <mxCell id="e_web_browser" value="WebSocket + REST" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;strokeWidth=2;fontSize=10;fontStyle=2;dashed=1;dashPattern=8 4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;startArrow=blockThin;startFill=1;endArrow=blockThin;endFill=1;" parent="1" source="web" target="browser" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="legend" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;strokeWidth=1;dashed=0;fontSize=10;" parent="1" vertex="1">
-                    <mxGeometry x="40" y="730" width="520" height="100" as="geometry"/>
+                    <mxGeometry x="40" y="680" width="540" height="175" as="geometry"/>
                 </mxCell>
                 <mxCell id="leg_title" value="&lt;b&gt;Legend&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=12;" parent="1" vertex="1">
-                    <mxGeometry x="50" y="735" width="70" height="20" as="geometry"/>
+                    <mxGeometry x="60" y="695" width="70" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="leg_app" value="Application (DomainParticipant)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="60" y="760" width="200" height="24" as="geometry"/>
+                    <mxGeometry x="70" y="725" width="200" height="24" as="geometry"/>
                 </mxCell>
-                <mxCell id="leg_topic" value="DDS Topic" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;shadow=1;strokeWidth=2;" parent="1" vertex="1">
-                    <mxGeometry x="60" y="790" width="120" height="24" as="geometry"/>
+                <mxCell id="leg_topic" value="DDS Topic" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f0f7ff;strokeColor=#6c8ebf;fontSize=10;shadow=1;strokeWidth=2;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="760" width="120" height="24" as="geometry"/>
                 </mxCell>
                 <mxCell id="leg_dw" value="" style="endArrow=blockThin;endFill=1;html=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;" parent="1" edge="1">
                     <mxGeometry relative="1" as="geometry">
-                        <mxPoint x="280" y="772" as="sourcePoint"/>
-                        <mxPoint x="360" y="772" as="targetPoint"/>
+                        <mxPoint x="300" y="737" as="sourcePoint"/>
+                        <mxPoint x="380" y="737" as="targetPoint"/>
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="leg_dw_label" value="DW = DataWriter (publish)" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=10;" parent="1" vertex="1">
-                    <mxGeometry x="365" y="762" width="140" height="20" as="geometry"/>
+                    <mxGeometry x="395" y="727" width="140" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="leg_dr" value="" style="endArrow=blockThin;endFill=1;html=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;" parent="1" edge="1">
                     <mxGeometry relative="1" as="geometry">
-                        <mxPoint x="280" y="802" as="sourcePoint"/>
-                        <mxPoint x="360" y="802" as="targetPoint"/>
+                        <mxPoint x="300" y="772" as="sourcePoint"/>
+                        <mxPoint x="380" y="772" as="targetPoint"/>
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="leg_dr_label" value="DR = DataReader (subscribe)" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=10;" parent="1" vertex="1">
-                    <mxGeometry x="365" y="792" width="160" height="20" as="geometry"/>
+                    <mxGeometry x="395" y="762" width="160" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_control" value="" style="endArrow=blockThin;endFill=1;html=1;strokeColor=#d79b00;strokeWidth=2;fontSize=10;dashed=1;dashPattern=6 4;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="300" y="807" as="sourcePoint"/>
+                        <mxPoint x="380" y="807" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="leg_control_label" value="Control request/command" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="395" y="797" width="145" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="leg_dom_field" value="Domain 15 (Field)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;dashed=1;" parent="1" vertex="1">
-                    <mxGeometry x="60" y="820" width="120" height="20" as="geometry"/>
+                    <mxGeometry x="70" y="825" width="120" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="leg_dom_pres" value="Domain 16 (Presentation)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;dashed=1;" parent="1" vertex="1">
-                    <mxGeometry x="200" y="820" width="160" height="20" as="geometry"/>
+                    <mxGeometry x="210" y="825" width="160" height="20" as="geometry"/>
+                </mxCell>
+                <!-- Topic Definitions Table -->
+                <mxCell id="td_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;strokeWidth=1;dashed=0;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="680" width="920" height="235" as="geometry"/>
+                </mxCell>
+                <mxCell id="td_title" value="&lt;b&gt;Topic Definitions&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="695" width="130" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="td_simple" value="&lt;table style=&quot;font-size:11px;border-collapse:collapse;width:100%&quot;&gt;&lt;tr style=&quot;background:#e0e0e0;font-weight:bold&quot;&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;ID&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;Topic&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;Type&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;QoS / Pattern&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T1&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;PLC::MetaDataTopic&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::MetaData&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;Reliable state data&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T2&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;PLC::IdValueTopic&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::IdValue&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;Periodic field values&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T3&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;PLC::SelectedMetaDataTopic&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::MetaData&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;Filtered state data&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T4&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;PLC::SelectedValueTopic&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::IdValue&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;Rate-limited selected values&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T5&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;PLC::ValueRequestTopic&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::ValueRequest&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:5px 8px;border:1px solid #ccc&quot;&gt;Selection command channel&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=none;fillColor=none;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="725" width="880" height="170" as="geometry"/>
+                </mxCell>
+                <mxCell id="td_hdr" value="&lt;table style=&quot;font-size:11px;border-collapse:collapse;width:100%&quot;&gt;&lt;tr style=&quot;background:#e0e0e0;font-weight:bold&quot;&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;ID&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Topic Name&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Type&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Key&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Domain&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;QoS&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Pattern&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T1&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;PLC::MetaDataTopic&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::MetaData&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;uid&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;15&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;RELIABLE, TRANSIENT_LOCAL, KEEP_LAST 1&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;State Data&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T2&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;PLC::IdValueTopic&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::IdValue&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;uid&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;15&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;RELIABLE, T_LOCAL(W)/VOLATILE(R), KEEP_LAST 10&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Periodic Values&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T3&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;PLC::SelectedMetaDataTopic&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::MetaData&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;uid&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;16&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;RELIABLE, TRANSIENT_LOCAL&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Filtered State Data&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T4&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;PLC::SelectedValueTopic&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::IdValue&lt;/i&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;uid&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;16&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;RELIABLE, VOLATILE(R)&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Rate-Limited Values&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;b&gt;T5&lt;/b&gt;&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;PLC::ValueRequestTopic&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;&lt;i&gt;PLC::ValueRequest&lt;/i&gt; (union)&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;—&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;16&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;RELIABLE&lt;/td&gt;&lt;td style=&quot;padding:4px 8px;border:1px solid #ccc&quot;&gt;Command Channel (ADD|DELETE|METADATA|PERIOD)&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="text;html=1;align=left;verticalAlign=top;resizable=0;points=[];overflow=fill;fontSize=11;spacingTop=2;" parent="1" vertex="1">
+                    <mxGeometry x="-2000" y="-2000" width="1" height="1" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>
