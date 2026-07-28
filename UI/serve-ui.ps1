@@ -3,16 +3,18 @@
     Serves the SCADA Tag Monitor UI on a local static HTTP server and opens it.
 
 .DESCRIPTION
-    Iteration 1 talks to RTI Web Integration Service over its WebSocket API.
-    The page is a static file, so all this script does is host UI/ on a local
-    port and open a browser. It does NOT start WIS or any DDS app — run WIS
-    (with -enableWebSockets) separately.
+    The UI talks to scada_web's native REST/WebSocket API (GET /api/v1/...,
+    WS /ws). The page is a static file, so all this script does is host UI/ on
+    a local port and open a browser. It does NOT start scada_web itself — run
+    `python -m scada_web` separately (it also serves this UI directly on its
+    own port via document_root, so this script is only needed for a standalone
+    preview on a different port).
 
     Server is chosen automatically: python -m http.server if Python is on PATH,
     otherwise a tiny built-in Node static server. No packages are installed.
 
 .PARAMETER Port
-    Port to serve on. Default 8000 (kept off WIS's usual 8080).
+    Port to serve on. Default 8000 (kept off scada_web's usual 8080).
 
 .PARAMETER NoBrowser
     Don't auto-open the browser.
@@ -36,7 +38,7 @@ Write-Host ""
 Write-Host "  SCADA Tag Monitor UI" -ForegroundColor Cyan
 Write-Host "  serving : $UiDir"
 Write-Host "  url     : $Url"
-Write-Host "  (make sure WIS is running with -enableWebSockets)" -ForegroundColor DarkGray
+Write-Host "  (make sure scada_web is running: python -m scada_web)" -ForegroundColor DarkGray
 Write-Host "  Press Ctrl+C to stop." -ForegroundColor DarkGray
 Write-Host ""
 

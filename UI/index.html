@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SCADA Tag Monitor — RTI Web Integration Service</title>
+<title>SCADA Tag Monitor</title>
 <style>
   :root {
     --bg: #080b0f; --panel: #121820; --panel-2: #1c232d; --border: #3a4552;
@@ -57,9 +57,10 @@
   th { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 600; background: var(--panel-2); }
   tr:last-child td { border-bottom: none; }
   td.num, th.num { text-align: right; font-family: var(--mono); }
+  td.watch, th.watch { text-align: center; }
   tr.row { cursor: pointer; } tr.row:hover { background: rgba(55,182,255,.05); }
-  tr.row.requested { background: rgba(92,198,255,.12); }
-  tr.row.requested td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  tr.row.watched { background: rgba(92,198,255,.12); }
+  tr.row.watched td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   tr.stale td { color: var(--muted); }
   .uid { font-family: var(--mono); color: var(--accent); font-weight: 600; }
   .name { font-weight: 600; }
@@ -87,36 +88,20 @@
 </head>
 <body>
 <header>
-  <h1>SCADA Tag Monitor · <span>RTI Web Integration Service</span></h1>
+  <h1>SCADA Tag <span>Monitor</span></h1>
   <div class="spacer"></div>
   <div class="status"><span class="dot" id="wsDot"></span><span id="wsText">disconnected</span></div>
 </header>
 
 <main>
   <details class="config" id="cfg">
-    <summary>WIS connection settings</summary>
+    <summary>Connection settings</summary>
     <div class="cfg-grid">
-      <label>WebSocket URL</label>
-      <input type="text" id="wsUrl" spellcheck="false" placeholder="ws://localhost:8080/dds/websocket/scada_ui" />
-
-      <label>IdValue reader URI</label>
-      <input type="text" id="idValueUri" spellcheck="false" placeholder="/dds/rest1/applications/App/domain_participants/Part/subscribers/Sub/data_readers/IdValueReader" />
-
-      <label>MetaData reader URI</label>
-      <input type="text" id="metaUri" spellcheck="false" placeholder="/dds/rest1/applications/App/domain_participants/Part/subscribers/Sub/data_readers/MetaDataReader" />
-
-      <label>ValueRequest writer URI</label>
-      <input type="text" id="valueReqUri" spellcheck="false" placeholder="/dds/rest1/applications/App/domain_participants/Part/publishers/Pub/data_writers/ValueRequestWriter" />
-
-      <label>Base HTTP URL</label>
-      <input type="text" id="httpBase" spellcheck="false" placeholder="http://localhost:8080" />
-
-      <label>Connection name</label>
-      <input type="text" id="connName" spellcheck="false" placeholder="scada_ui" />
+      <label>API base URL</label>
+      <input type="text" id="apiBase" spellcheck="false" placeholder="(same origin as this page)" />
 
       <div class="cfg-actions">
         <button id="connectBtn">Connect</button>
-        <button class="ghost" id="createConnBtn" title="POST /dds/v1/websocket_connections — needed once per name if not pre-defined in WIS config">Create connection (REST)</button>
         <button class="ghost" id="disconnectBtn">Disconnect</button>
         <button class="ghost" id="resetCfgBtn" title="Discard saved settings and restore defaults">Reset defaults</button>
       </div>
@@ -124,37 +109,38 @@
   </details>
 
   <div class="controls">
-    <label>Value request</label>
+    <label>Watch tag</label>
     <div class="controls-row">
-      <input type="text" id="reqId" placeholder="ID (uid)" size="8" spellcheck="false" />
-      <button id="reqAddBtn">ADD</button>
-      <button class="ghost" id="reqDeleteBtn">DELETE</button>
-      <span class="req-status" id="reqStatus">send ADD or DELETE</span>
+      <input type="text" id="reqId" placeholder="UID" size="8" spellcheck="false" />
+      <button id="reqAddBtn">SUBSCRIBE</button>
+      <button class="ghost" id="reqDeleteBtn">UNSUBSCRIBE</button>
+      <span class="req-status" id="reqStatus">subscribe to a UID to start receiving live values</span>
     </div>
     <div class="controls-row controls-row-secondary">
-      <input type="text" id="reqPeriod" class="small" placeholder="period ms" value="1000" spellcheck="false" title="period_ms — send a request with uid 0 and this period" />
-      <button id="reqSendBtn">SEND</button>
+      <input type="text" id="reqPeriod" class="small" placeholder="period ms" value="1000" spellcheck="false" title="Minimum separation (ms) the selector applies between forwarded samples for all watched tags" />
+      <button id="reqSendBtn">SET PERIOD</button>
     </div>
     <div class="spacer" style="flex:1"></div>
-    <span class="count" id="count">0 instances</span>
+    <span class="count" id="count">0 tags</span>
   </div>
 
   <p class="hint">
-    Bound to the pre-configured WIS DataReaders for <code>PLC::IdValueTopic</code> / <code>PLC::MetaDataTopic</code> and the
-    <code>ValueRequestWriter</code>, over the WebSocket API. All received instances appear in the table. Use
-    <strong>ADD</strong> and <strong>DELETE</strong> for a specific UID, or use <strong>SEND</strong> with UID 0 and a period to publish a period-only request. Click a row to inspect the raw samples.
+    Tag names come from the metadata catalog (<code>PLC::SelectedMetaDataTopic</code>), polled via REST and shown for
+    every known UID. Live values only stream for tags you <strong>subscribe</strong> to — this drives an ADD/DELETE
+    ValueRequest to <code>scada_select</code>, which starts or stops forwarding that UID on
+    <code>PLC::SelectedValueTopic</code>. Click a row's watch box to toggle it, or a row to inspect the raw samples.
   </p>
 
   <table id="grid">
     <thead>
       <tr>
-        <th>UID</th><th>Name</th><th>Host</th>
+        <th class="watch">Watch</th><th>UID</th><th>Name</th><th>Host</th>
         <th class="num">Value</th><th class="num">Raw</th>
         <th>Alarm limits (Y / R)</th><th>Updated</th>
       </tr>
     </thead>
     <tbody id="rows">
-      <tr><td colspan="7" class="empty">Not connected. Open “WIS connection settings”, set the reader URIs, and Connect.</td></tr>
+      <tr><td colspan="8" class="empty">Not connected. Click Connect to load the tag catalog.</td></tr>
     </tbody>
   </table>
 
@@ -163,7 +149,6 @@
     <div class="dbgbar">
       <button class="ghost" id="dbgClear">Clear</button>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="dbgPushes" /> log data pushes too</label>
-      <span>WIS replies only on error — a request with no <b style="color:var(--green)">←</b> response below was accepted.</span>
     </div>
     <div class="dbglog" id="dbgLog"></div>
   </details>
@@ -173,56 +158,49 @@
 "use strict";
 
 // ─── Config (persisted) ──────────────────────────────────────────────────────
-const CFG_KEYS = ["wsUrl", "idValueUri", "metaUri", "valueReqUri", "httpBase", "connName"];
-// Defaults match scada_web/scada_web/wis-config.xml
-//   web_integration_service "ScadaWeb" / application "ScadaWebApp"
-//   domain_participant "Plant" (domain 0)
-//   IdValueSubscriber/IdValueReader  ·  MetaDataSubscriber/MetaDataReader
-// WIS runs on :8080. Point the create-POST and WebSocket at WIS EXPLICITLY so they
-// always reach it, no matter where this page is served from (WIS -documentRoot on
-// :8080, a separate static server on :8000, or file://). Deriving these from the
-// page origin sends the POST to the static server, which 501s. Edit if WIS moves.
-const CFG_DEFAULTS = {
-  wsUrl: "ws://localhost:8080/dds/websocket/scada_ui",
-  idValueUri: "/dds/rest1/applications/ScadaWebApp/domain_participants/Plant/subscribers/IdValueSubscriber/data_readers/IdValueReader",
-  metaUri: "/dds/rest1/applications/ScadaWebApp/domain_participants/Plant/subscribers/MetaDataSubscriber/data_readers/MetaDataReader",
-  valueReqUri: "/dds/rest1/applications/ScadaWebApp/domain_participants/Plant/publishers/ControlPublisher/data_writers/ValueRequestWriter",
-  httpBase: "http://localhost:8080",
-  connName: "scada_ui",
-};
-// Bump when CFG_DEFAULTS change so stale browser-saved settings are discarded.
-const CFG_VERSION = "4";
+const CFG_KEYS = ["apiBase"];
+const CFG_DEFAULTS = { apiBase: "" };  // empty = same origin as this page
+const CFG_VERSION = "1";
 const el = id => document.getElementById(id);
 function loadCfg() {
-  if (localStorage.getItem("wis_cfg_version") !== CFG_VERSION) {
-    for (const k of CFG_KEYS) localStorage.removeItem("wis_" + k);
-    localStorage.setItem("wis_cfg_version", CFG_VERSION);
+  if (localStorage.getItem("scada_cfg_version") !== CFG_VERSION) {
+    for (const k of CFG_KEYS) localStorage.removeItem("scada_" + k);
+    localStorage.setItem("scada_cfg_version", CFG_VERSION);
   }
-  for (const k of CFG_KEYS) el(k).value = localStorage.getItem("wis_" + k) || CFG_DEFAULTS[k];
+  for (const k of CFG_KEYS) el(k).value = localStorage.getItem("scada_" + k) ?? CFG_DEFAULTS[k];
 }
 function resetCfg() {
-  for (const k of CFG_KEYS) { localStorage.removeItem("wis_" + k); el(k).value = CFG_DEFAULTS[k]; }
-  localStorage.setItem("wis_cfg_version", CFG_VERSION);
+  for (const k of CFG_KEYS) { localStorage.removeItem("scada_" + k); el(k).value = CFG_DEFAULTS[k]; }
+  localStorage.setItem("scada_cfg_version", CFG_VERSION);
   logDbg("sys", "•", "settings reset to defaults");
 }
 function saveCfg() {
-  for (const k of CFG_KEYS) localStorage.setItem("wis_" + k, el(k).value.trim());
+  for (const k of CFG_KEYS) localStorage.setItem("scada_" + k, el(k).value.trim());
 }
 function cfg(k) { return el(k).value.trim(); }
 
-// Bind ids for the two readers + the ValueRequest writer
-const BIND_IDVALUE = "idvalue";
-const BIND_META = "metadata";
-const BIND_VALUEREQ = "valuereq";
+// Topic names the native API pushes samples for (see scada_web/config.yaml).
+const METADATA_TOPIC = "PLC::SelectedMetaDataTopic";
+const VALUE_TOPIC = "PLC::SelectedValueTopic";
+const METADATA_POLL_MS = 5000;
+
+function httpBase() { return cfg("apiBase").replace(/\/+$/, ""); }
+function wsUrl() {
+  const base = cfg("apiBase");
+  if (base) return base.replace(/^http/, "ws").replace(/\/+$/, "") + "/ws";
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${scheme}//${location.host}/ws`;
+}
 
 // ─── State ───────────────────────────────────────────────────────────────────
-// uid -> { meta, metaRaw, metaTs, val, valRaw, valRawSample, valTs }
+// uid -> { meta, metaRaw, metaTs, val, valRaw, valRawSample, valTs, watched }
 const tags = new Map();
 let ws = null;
-let connected = false;   // true only after HELLO_OK
+let connected = false;
 let manualClose = false;
 let reconnectDelay = 500;
 let reconnectTimer = null;
+let metaPollTimer = null;
 
 const VALUE_MEMBERS = ["float64Value", "float32Value", "int64Value", "int32Value", "stringValue"];
 
@@ -230,55 +208,36 @@ const VALUE_MEMBERS = ["float64Value", "float32Value", "int64Value", "int32Value
 function unionScalar(u) {
   if (u === null || u === undefined) return null;
   if (typeof u !== "object") return u;
-  for (const m of VALUE_MEMBERS) if (m in u) return charFix(u[m]);
+  for (const m of VALUE_MEMBERS) if (m in u) return u[m];
   const keys = Object.keys(u).filter(k => !k.startsWith("_") && k !== "#discriminator");
-  if (keys.length === 1) return charFix(u[keys[0]]);
+  if (keys.length === 1) return u[keys[0]];
   return u;
-}
-function charFix(v) {
-  if (Array.isArray(v)) v = v.map(c => (typeof c === "number" ? String.fromCharCode(c) : c)).join("");
-  if (typeof v === "string") return v.replace(/[\u0000 ]+$/g, "");  // trim NUL-padding / trailing space
-  return v;
 }
 function num(v) { const n = typeof v === "number" ? v : parseFloat(v); return Number.isFinite(n) ? n : null; }
 function fmtNum(v) { const n = num(v); if (n === null) return v == null ? "—" : String(v); return Number.isInteger(n) ? String(n) : n.toFixed(2); }
 
-// ─── Ingest a WIS read-sample for a bound reader ─────────────────────────────
+// ─── Ingest a sample pushed for a topic ─────────────────────────────────────
 function ensureTag(uid) {
-  if (!tags.has(uid)) tags.set(uid, { meta: null, metaRaw: null, metaTs: 0, val: null, valRaw: null, valRawSample: null, valTs: 0 });
+  if (!tags.has(uid)) tags.set(uid, { meta: null, metaRaw: null, metaTs: 0, val: null, valRaw: null, valRawSample: null, valTs: 0, watched: false });
   return tags.get(uid);
 }
-function tsFromInfo(info) {
-  const st = info && info.source_timestamp;
-  if (st && typeof st.sec === "number") return st.sec * 1000 + Math.floor((st.nanosec || 0) / 1e6);
-  return Date.now();
-}
-function ingest(bindId, sample) {
-  const info = sample.read_sample_info || {};
-  const d = sample.data || {};
-  if (info.valid_data === false) return;          // disposal / no-writers notifications
-  const uid = num(d.uid);
-  if (uid === null) return;
+function ingestMetaData(uid, d) {
   const t = ensureTag(uid);
-  const ts = tsFromInfo(info);
-  if (bindId === BIND_META) {
-    const lim = d.limits || {};
-    t.meta = {
-      name: charFix(d.longName), host: charFix(d.hostname),
-      redHigh: num(unionScalar(lim.redHigh)), redLow: num(unionScalar(lim.redLow)),
-      yellowHigh: num(unionScalar(lim.yellowHigh)), yellowLow: num(unionScalar(lim.yellowLow)),
-      greenHigh: num(unionScalar(lim.greenHigh)), greenLow: num(unionScalar(lim.greenLow)),
-      active: lim.active,
-    };
-    t.metaRaw = d; t.metaTs = ts;
-    logDbg("in", "←", `MetaData uid=${uid} received`);
-    console.debug("MetaData received", { uid, sample: d });
-  } else { // BIND_IDVALUE
-    t.val = num(unionScalar(d.smoothedValue));
-    t.valRaw = num(unionScalar(d.rawValue));
-    t.valRawSample = d; t.valTs = ts;
-  }
-  render();
+  const lim = d.limits || {};
+  t.meta = {
+    name: d.longName, host: d.hostname,
+    redHigh: num(unionScalar(lim.redHigh)), redLow: num(unionScalar(lim.redLow)),
+    yellowHigh: num(unionScalar(lim.yellowHigh)), yellowLow: num(unionScalar(lim.yellowLow)),
+    greenHigh: num(unionScalar(lim.greenHigh)), greenLow: num(unionScalar(lim.greenLow)),
+    active: lim.active,
+  };
+  t.metaRaw = d; t.metaTs = Date.now();
+}
+function ingestValue(uid, d) {
+  const t = ensureTag(uid);
+  t.val = num(unionScalar(d.smoothedValue));
+  t.valRaw = num(unionScalar(d.rawValue));
+  t.valRawSample = d; t.valTs = Date.now();
 }
 
 // ─── Alarm evaluation ────────────────────────────────────────────────────────
@@ -306,12 +265,12 @@ function visibleUids() {
 }
 function render() {
   const uids = visibleUids();
-  el("count").textContent = `${tags.size} instance${tags.size === 1 ? "" : "s"}`;
+  el("count").textContent = `${tags.size} tag${tags.size === 1 ? "" : "s"}`;
   if (uids.length === 0) {
     const msg = (ws && ws.readyState === WebSocket.OPEN)
-      ? "Connected — waiting for samples…"
-      : "Not connected. Open “WIS connection settings”, set the reader URIs, and Connect.";
-    rowsEl.innerHTML = `<tr><td colspan="7" class="empty">${msg}</td></tr>`;
+      ? "Connected — waiting for the tag catalog…"
+      : "Not connected. Click Connect to load the tag catalog.";
+    rowsEl.innerHTML = `<tr><td colspan="8" class="empty">${msg}</td></tr>`;
     return;
   }
   const now = Date.now();
@@ -324,7 +283,8 @@ function render() {
     const limits = t.meta
       ? `<span class="limits">Y:[${fmtNum(meta.yellowLow)}, ${fmtNum(meta.yellowHigh)}]&nbsp;&nbsp;R:[${fmtNum(meta.redLow)}, ${fmtNum(meta.redHigh)}]</span>`
       : `<span class="limits">—</span>`;
-    html += `<tr class="row ${stale}" data-uid="${uid}">` +
+    html += `<tr class="row ${t.watched ? "watched" : ""} ${stale}" data-uid="${uid}">` +
+      `<td class="watch"><input type="checkbox" class="watch-toggle" data-uid="${uid}" ${t.watched ? "checked" : ""} /></td>` +
       `<td class="uid">${uid}</td>` +
       `<td class="name">${meta.name != null ? esc(meta.name) : "<span class='waiting-cell'>—</span>"}</td>` +
       `<td>${meta.host != null ? esc(meta.host) : "—"}</td>` +
@@ -334,9 +294,9 @@ function render() {
       `<td><span class="ago" data-ts="${t.valTs || t.metaTs}">${agoText(t.valTs || t.metaTs)}</span></td>` +
       `</tr>`;
     if (expanded.has(uid)) {
-      html += `<tr class="detail"><td colspan="7"><div class="detail-inner">` +
+      html += `<tr class="detail"><td colspan="8"><div class="detail-inner">` +
         `<div><h4>MetaData</h4><pre>${t.metaRaw ? esc(JSON.stringify(t.metaRaw, null, 2)) : "not received"}</pre></div>` +
-        `<div><h4>IdValue</h4><pre>${t.valRawSample ? esc(JSON.stringify(t.valRawSample, null, 2)) : "not received"}</pre></div>` +
+        `<div><h4>Value</h4><pre>${t.valRawSample ? esc(JSON.stringify(t.valRawSample, null, 2)) : "not received"}</pre></div>` +
         `</div></td></tr>`;
     }
   }
@@ -345,6 +305,11 @@ function render() {
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
 rowsEl.addEventListener("click", e => {
+  if (e.target.classList.contains("watch-toggle")) {
+    const uid = Number(e.target.dataset.uid);
+    if (e.target.checked) subscribeUid(uid); else unsubscribeUid(uid);
+    return;
+  }
   const tr = e.target.closest("tr.row"); if (!tr) return;
   const uid = Number(tr.dataset.uid);
   if (expanded.has(uid)) expanded.delete(uid); else expanded.add(uid);
@@ -352,73 +317,68 @@ rowsEl.addEventListener("click", e => {
 });
 setInterval(() => { document.querySelectorAll(".ago").forEach(x => { x.textContent = agoText(Number(x.dataset.ts)); }); }, 1000);
 
-// ─── Value request actions ─────────────────────────────────────────────────
-let reqSeq = 0;
-function valueReqMessage(uid, command, period) {
-  // ValueRequest is a DDS union switched on Command_t. In RTI Web DDS JSON, a
-  // union sample is an object with exactly ONE key: the selected member. The
-  // discriminator is inferred from which member is present — there is no
-  // "command" field in the type, and including one (or any second key) makes
-  // WIS reject the sample with "Invalid data sample" (return_code 5).
-  //   ADD           -> addRequest{uid,name}
-  //   DELETE/METADATA -> uid   (both labels share the `uid` member)
-  //   PERIOD        -> periodRequest{period_ms}
-  let body;
-  switch (command) {
-    case "ADD":
-      body = { addRequest: { uid, name: "" } };
-      break;
-    case "DELETE":
-    case "METADATA":
-      body = { uid };
-      break;
-    case "PERIOD":
-      body = { periodRequest: { period_ms: period } };
-      break;
-    default:
-      body = { uid };
+// ─── Metadata catalog (REST poll) ───────────────────────────────────────────
+async function pollMetadataCatalog() {
+  try {
+    const r = await fetch(`${httpBase()}/api/v1/topics/${encodeURIComponent(METADATA_TOPIC)}/samples/all`);
+    if (!r.ok) { logDbg("err", "•", `GET samples/all → HTTP ${r.status}`); return; }
+    const body = await r.json();
+    for (const s of body.samples || []) {
+      if (s.uid !== null && s.uid !== undefined) ingestMetaData(s.uid, s.data);
+    }
+    render();
+  } catch (e) {
+    logDbg("err", "•", `metadata catalog fetch failed: ${e.message}`);
   }
-
-  return JSON.stringify({
-    kind: "request",
-    id: "vr-" + (++reqSeq),
-    method: "POST",
-    uri: cfg("valueReqUri"),
-    body,
-  });
 }
-function sendValueRequest(uid, command, period) {
-  if (!connected || !ws || ws.readyState !== WebSocket.OPEN) { logDbg("err", "•", "not handshaked — request not sent"); return false; }
-  const m = valueReqMessage(uid, command, period);
-  ws.send(m);
-  logDbg("out", "→", m);
+
+// ─── Subscribe / unsubscribe ─────────────────────────────────────────────────
+function sendWs(msg) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) { logDbg("err", "•", "not connected — message not sent"); return false; }
+  const text = JSON.stringify(msg);
+  ws.send(text);
+  logDbg("out", "→", text);
   return true;
+}
+function subscribeUid(uid) {
+  const t = ensureTag(uid);
+  const sent = sendWs({ action: "subscribe", uids: [uid] });
+  if (sent) { t.watched = true; updateReqStatus(`subscribed to uid ${uid}`); render(); }
+  return sent;
+}
+function unsubscribeUid(uid) {
+  const t = tags.get(uid);
+  const sent = sendWs({ action: "unsubscribe", uids: [uid] });
+  if (sent && t) { t.watched = false; updateReqStatus(`unsubscribed uid ${uid}`); render(); }
+  return sent;
 }
 function updateReqStatus(message) {
   el("reqStatus").textContent = message;
 }
-function sendRequest(command) {
+function submitSubscribe() {
   const uid = parseInt(el("reqId").value.trim(), 10);
   if (!Number.isInteger(uid)) { el("reqId").focus(); return; }
   if (!ws || ws.readyState !== WebSocket.OPEN) { setStatus("off", "connect first"); el("cfg").open = true; return; }
-  const period = 0;
-  const sent = sendValueRequest(uid, command, period);
-  if (sent) updateReqStatus(`${command} request sent for uid ${uid}`);
+  subscribeUid(uid);
 }
-function submitAddRequest() { sendRequest("ADD"); }
-function submitDeleteRequest() { sendRequest("DELETE"); }
-function submitPeriodRequest() {
+function submitUnsubscribe() {
+  const uid = parseInt(el("reqId").value.trim(), 10);
+  if (!Number.isInteger(uid)) { el("reqId").focus(); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { setStatus("off", "connect first"); el("cfg").open = true; return; }
+  unsubscribeUid(uid);
+}
+function submitPeriod() {
   const period = parseInt(el("reqPeriod").value.trim(), 10);
   if (!Number.isInteger(period) || period < 0) { el("reqPeriod").focus(); return; }
   if (!ws || ws.readyState !== WebSocket.OPEN) { setStatus("off", "connect first"); el("cfg").open = true; return; }
-  const sent = sendValueRequest(0, "PERIOD", period);
-  if (sent) updateReqStatus(`PERIOD request sent @ ${period} ms`);
+  const sent = sendWs({ action: "set_min_separation", period_ms: period });
+  if (sent) updateReqStatus(`minimum separation set to ${period} ms`);
 }
-el("reqAddBtn").addEventListener("click", submitAddRequest);
-el("reqDeleteBtn").addEventListener("click", submitDeleteRequest);
-el("reqSendBtn").addEventListener("click", submitPeriodRequest);
-el("reqId").addEventListener("keydown", e => { if (e.key === "Enter") submitAddRequest(); });
-el("reqPeriod").addEventListener("keydown", e => { if (e.key === "Enter") submitPeriodRequest(); });
+el("reqAddBtn").addEventListener("click", submitSubscribe);
+el("reqDeleteBtn").addEventListener("click", submitUnsubscribe);
+el("reqSendBtn").addEventListener("click", submitPeriod);
+el("reqId").addEventListener("keydown", e => { if (e.key === "Enter") submitSubscribe(); });
+el("reqPeriod").addEventListener("keydown", e => { if (e.key === "Enter") submitPeriod(); });
 
 // ─── Debug log ───────────────────────────────────────────────────────────────
 const dbgLogEl = el("dbgLog");
@@ -433,145 +393,43 @@ function logDbg(cls, dir, text) {
 }
 el("dbgClear").addEventListener("click", () => { dbgLogEl.innerHTML = ""; dbgLines = 0; });
 
-// ─── WIS WebSocket protocol ──────────────────────────────────────────────────
+// ─── Native WebSocket protocol ────────────────────────────────────────────────
 function setStatus(state, text) { el("wsDot").className = "dot " + state; el("wsText").textContent = text; }
 
-function escapeForLog(s) {
-  return String(s)
-    .replace(/\\r/g, "\\r")
-    .replace(/\\n/g, "\\n")
-    .replace(/\\t/g, "\\t");
-}
-
-function helloMessage() {
-  // RTI Web Integration Service expects a HELLO frame consisting of CRLF-delimited header lines.
-  return "Content-Type:application/dds-web+json\r\n" +
-         "Accept:application/dds-web+json\r\n" +
-         "OMG-DDS-API-Key:\r\n" +
-         "Version:1\r\n\r\n";
-}
-function bindMessage() {
-  return JSON.stringify({
-    kind: "bind",
-    body: [
-      { bind_kind: "bind_datareader", bind_id: BIND_IDVALUE, uri: cfg("idValueUri") },
-      { bind_kind: "bind_datareader", bind_id: BIND_META, uri: cfg("metaUri") },
-    ],
-  });
-}
-
-async function ensureConnectionResource() {
-  // WIS 7.7 requires the websocket connection resource to exist before the socket
-  // can open: POST /dds/v1/websocket_connections with { "name": <connName> }.
-  // Older RTI examples may accept an array-wrapped payload, so try the object
-  // form first and fall back to array form if needed. We do this in the background
-  // and with a short timeout so the socket connect is not blocked by a slow/failing
-  // HTTP pre-step.
-  const base = cfg("httpBase").replace(/\/+$/, "");
-  const name = cfg("connName");
-  if (!base || !name) return null;
-  const url = base + "/dds/v1/websocket_connections";
-  const init = {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/dds-web+json",
-      "Accept": "application/dds-web+json",
-      "Cache-Control": "none",
-    },
-    body: JSON.stringify({ name }),
-  };
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 3000);
-  try {
-    let r = await fetch(url, { ...init, signal: controller.signal });
-    if (r && !r.ok && (r.status === 400 || r.status === 422)) {
-      logDbg("sys", "•", "retrying websocket connection create with legacy array payload");
-      init.body = JSON.stringify([{ name }]);
-      r = await fetch(url, { ...init, signal: controller.signal });
-    }
-    return r;
-  } catch (e) {
-    if (e.name === "AbortError") {
-      logDbg("sys", "•", "websocket connection create timed out after 3s; continuing with socket connect");
-    } else {
-      logDbg("err", "•", `create-connection request failed: ${e.message}`);
-    }
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-async function connect() {
+function connect() {
   saveCfg();
   manualClose = false;
-  connected = false;
-  el("reqAddBtn").disabled = true;
-  el("reqDeleteBtn").disabled = true;
-  el("reqSendBtn").disabled = true;
   clearTimeout(reconnectTimer);
-  const url = cfg("wsUrl");
-  if (!url) { setStatus("off", "set WebSocket URL"); el("cfg").open = true; return; }
-  // Create the WIS websocket connection resource in the background. It is best-effort,
-  // and we should not block the socket connect on it.
-  setStatus("pending", "creating connection…");
-  void ensureConnectionResource().then(r => {
-    if (r) logDbg((r.ok || r.status === 409) ? "sys" : "err", "•", `POST /dds/v1/websocket_connections '${cfg("connName")}' → HTTP ${r.status}`);
-  });
-  if (manualClose) return;
   setStatus("pending", "connecting…");
-  try { ws = new WebSocket(url); }
+  try { ws = new WebSocket(wsUrl()); }
   catch (e) { setStatus("off", "bad URL"); return; }
 
-  ws.onopen = () => { setStatus("pending", "handshaking…"); ws.send(helloMessage()); logDbg("out", "→", "HELLO"); };
-
-  ws.onmessage = ev => {
-    const raw = ev.data;
-    if (typeof raw === "string" && raw.startsWith("HELLO")) {
-      // WIS 7.7 actually replies "HELLO OK:Handshake succeeded" (a space, not the
-      // "HELLO_OK" the docs show) on success, or "HELLO FAIL:<reason>" on failure.
-      if (/fail/i.test(raw)) {
-        setStatus("off", "handshake failed"); console.error("WIS:", raw);
-        logDbg("err", "←", raw);
-        manualClose = true; try { ws.close(); } catch (_) {}
-        return;
-      }
-      setStatus("on", "connected");
-      reconnectDelay = 500;
-      connected = true;
-      el("reqAddBtn").disabled = false;
-      el("reqDeleteBtn").disabled = false;
-      el("reqSendBtn").disabled = false;
-      logDbg("in", "←", raw);
-      const bm = bindMessage();
-      ws.send(bm);                 // bind readers + ValueRequest writer
-      logDbg("out", "→", bm);
-      return;
-    }
-    // Log every other frame verbatim so nothing WIS sends is silently dropped.
-    let msg;
-    try { msg = JSON.parse(raw); }
-    catch (_) { logDbg("in", "←", "frame: " + String(raw).slice(0, 400)); return; }
-    handleMessage(msg);
+  ws.onopen = () => {
+    setStatus("on", "connected");
+    connected = true;
+    reconnectDelay = 500;
+    logDbg("sys", "•", `connected to ${wsUrl()}`);
+    // Re-subscribe to any tags the user was already watching (e.g. after a reconnect).
+    const uids = [...tags.entries()].filter(([, t]) => t.watched).map(([uid]) => uid);
+    if (uids.length) sendWs({ action: "subscribe", uids });
+    pollMetadataCatalog();
+    clearInterval(metaPollTimer);
+    metaPollTimer = setInterval(pollMetadataCatalog, METADATA_POLL_MS);
   };
 
-  ws.onclose = () => { setStatus("off", "disconnected"); connected = false; el("reqAddBtn").disabled = true; el("reqDeleteBtn").disabled = true; el("reqSendBtn").disabled = true; if (!manualClose) scheduleReconnect(); };
-  ws.onerror = () => { console.warn("WIS websocket error"); };
-}
+  ws.onmessage = ev => {
+    let msg;
+    try { msg = JSON.parse(ev.data); }
+    catch (_) { logDbg("in", "←", "unparseable frame: " + String(ev.data).slice(0, 400)); return; }
+    if (el("dbgPushes").checked) logDbg("in", "←", JSON.stringify(msg));
+    if (msg.uid === null || msg.uid === undefined) return;
+    if (msg.topic === METADATA_TOPIC) ingestMetaData(msg.uid, msg.data);
+    else if (msg.topic === VALUE_TOPIC) ingestValue(msg.uid, msg.data);
+    render();
+  };
 
-function handleMessage(msg) {
-  const kind = msg.kind || msg.Kind;
-  if (kind === "b_push") {
-    const seq = (msg.body && msg.body.read_sample_seq) || [];
-    if (el("dbgPushes").checked) logDbg("in", "←", `b_push ${msg.bind_id} ×${seq.length}`);
-    for (const s of seq) ingest(msg.bind_id, s);
-  } else {
-    // Any non-push message (bind/write responses, errors) — surface it in the debug log.
-    const rc = msg.return_code || msg.returnCode;
-    const isErr = rc && rc !== "OK";
-    logDbg(isErr ? "err" : "in", "←", JSON.stringify(msg));
-    if (isErr) console.error("WIS response error:", msg);
-  }
+  ws.onclose = () => { setStatus("off", "disconnected"); connected = false; clearInterval(metaPollTimer); if (!manualClose) scheduleReconnect(); };
+  ws.onerror = () => { console.warn("websocket error"); };
 }
 
 function scheduleReconnect() {
@@ -580,45 +438,20 @@ function scheduleReconnect() {
   reconnectDelay = Math.min(reconnectDelay * 1.7, 8000);
 }
 function disconnect() {
-  manualClose = true; clearTimeout(reconnectTimer);
+  manualClose = true; clearTimeout(reconnectTimer); clearInterval(metaPollTimer);
   if (ws) try { ws.close(); } catch (_) {}
   setStatus("off", "disconnected");
-}
-
-// ─── Create WIS websocket connection resource (optional, best-effort) ─────────
-async function createConnection() {
-  saveCfg();
-  const btn = el("createConnBtn"); const old = btn.textContent;
-  btn.disabled = true; btn.textContent = "creating…";
-  try {
-    const r = await ensureConnectionResource();
-    const ok = r && (r.ok || r.status === 409);
-    btn.textContent = ok ? "connection ready ✓" : "HTTP " + (r ? r.status : "?");
-    if (r) logDbg(ok ? "sys" : "err", "•", `create connection → HTTP ${r.status}`);
-  } catch (e) {
-    // Cross-origin POST to WIS can be blocked by CORS preflight — pre-create out of
-    // band with curl, or serve this page from WIS's -documentRoot (same origin).
-    btn.textContent = "blocked (CORS?) — see log";
-    logDbg("err", "•", `create connection failed: ${e.message}`);
-  } finally {
-    setTimeout(() => { btn.disabled = false; btn.textContent = old; }, 2500);
-  }
 }
 
 // ─── Wire up ─────────────────────────────────────────────────────────────────
 el("connectBtn").addEventListener("click", connect);
 el("disconnectBtn").addEventListener("click", disconnect);
-el("createConnBtn").addEventListener("click", createConnection);
 el("resetCfgBtn").addEventListener("click", resetCfg);
 
 loadCfg();
-el("reqAddBtn").disabled = true;
-el("reqDeleteBtn").disabled = true;
-el("reqSendBtn").disabled = true;
-updateReqStatus("send ADD or DELETE");
+updateReqStatus("subscribe to a UID to start receiving live values");
 render();
-// Auto-connect if a WebSocket URL is configured.
-if (cfg("wsUrl")) connect(); else el("cfg").open = true;
+connect();
 </script>
 </body>
 </html>
