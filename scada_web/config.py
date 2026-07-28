@@ -192,8 +192,6 @@ def load_config(path: str | Path) -> ScadaWebConfig:
 
 def _validate(cfg: ScadaWebConfig) -> None:
     """Cross-reference validation (participant refs exist, etc.)."""
-    if not cfg.types_xml:
-        raise ValueError("config must specify types.xml path")
     if cfg.selection.default_min_separation_ms <= 0:
         raise ValueError("selection.default_min_separation_ms must be > 0")
     if cfg.topics and not cfg.qos_profiles:

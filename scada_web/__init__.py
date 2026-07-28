@@ -1,12 +1,13 @@
 """scada_web — Level 2 SCADA web gateway.
 
-Exposes DDS data to web clients over REST/WebSocket with a declarative
-mapping layer that decouples the client view schema from the wire type.
+Exposes DDS data to web clients over REST/WebSocket with typed views
+that decouple the client JSON schema from the DDS wire type (DD-052/DD-053).
 
 Architecture (Purdue model placement: Level 2 — supervisory):
-    config      — YAML-driven declaration of participants, topics, types, mappings
-    gateway     — DDS subscription manager; loads types from XML, creates readers at startup
+    config      — YAML-driven declaration of participants, topics, QoS
+    gateway     — DDS subscription manager; uses Python generated types
+    gen/        — rtiddsgen output (PLC module types)
     interest    — per-client uid refcounting and global selector separation
-    mapping     — wire DynamicData → slim view JSON (union projection, rename, flatten)
+    views       — typed DDS sample → slim view dataclass → JSON dict
     server      — REST + WebSocket (FastAPI/uvicorn)
 """

@@ -1,13 +1,7 @@
 # scada_web configuration
 #
-# Declares DDS participants and topic subscriptions for the pre-selector PoC.
-# Target topology moves this gateway to domain 16 (presentation) and selected topics only.
-# Pattern: references/act-sim-scope-infra/router/config/control-platform.yaml
-
-# --- XML type library ---
-# Generated with: rtiddsgen -convertToXml dds/idl/PlcValue.idl -d dds/idl/
-types:
-  xml: dds/idl/PlcValue.xml
+# Declares DDS participants and topic subscriptions for the presentation domain.
+# Types are Python generated classes (DD-052), loaded via scada_web/gen/.
 
 # --- QoS profiles ---
 # Shared profiles grouped by DDS domain: field and presentation.

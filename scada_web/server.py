@@ -30,7 +30,8 @@ from fastapi.staticfiles import StaticFiles
 from .config import ScadaWebConfig
 from .gateway import DdsGateway
 from .interest import InterestManager
-from .mapping import sample_to_dict
+from .gen.PlcValue import PLC
+from .views import TagValue, TagMeta
 
 logger = logging.getLogger(__name__)
 
@@ -103,23 +104,6 @@ async def list_topics():
     return {"topics": _gateway.topics}
 
 
-@app.get("/api/v1/topics/{topic_name}/type")
-async def get_topic_type(topic_name: str):
-    """Return the type structure for a topic (loaded from XML library)."""
-    if not _gateway:
-        return JSONResponse({"error": "not started"}, status_code=503)
-    try:
-        dtype = _gateway.get_type(topic_name)
-    except Exception:
-        return JSONResponse({"error": f"unknown type '{topic_name}'"},
-                            status_code=404)
-    members = []
-    for i in range(dtype.member_count):
-        m = dtype.member(i)
-        members.append({"name": m.name, "type": str(m.type.kind)})
-    return {"topic": topic_name, "type_name": dtype.name, "members": members}
-
-
 @app.get("/api/v1/topics/{topic_name}/samples")
 async def get_topic_samples(topic_name: str, uid: Optional[int] = None):
     """Return the current sample from the DDS reader cache without taking it."""
@@ -135,15 +119,11 @@ async def get_topic_samples(topic_name: str, uid: Optional[int] = None):
         return {"topic": topic_name, "sample": None}
 
     data, _info = sample
-    try:
-        sample_uid = data["uid"]
-    except Exception:
-        sample_uid = None
     return {
         "topic": topic_name,
         "sample": {
-            "uid": sample_uid,
-            "data": _sample_to_dict(data),
+            "uid": int(data.uid),
+            "data": _sample_to_view_dict(data),
         },
     }
 
@@ -161,13 +141,9 @@ async def get_all_topic_samples(topic_name: str):
 
     payload = []
     for data, _info in samples:
-        try:
-            sample_uid = data["uid"]
-        except Exception:
-            sample_uid = None
         payload.append({
-            "uid": sample_uid,
-            "data": _sample_to_dict(data),
+            "uid": int(data.uid),
+            "data": _sample_to_view_dict(data),
         })
     return {"topic": topic_name, "samples": payload}
 
@@ -261,20 +237,18 @@ def _parse_uid(item: Any) -> int:
 
 def _on_dds_sample(topic_name: str, data: Any, info: Any) -> None:
     """Called by DdsGateway when a sample arrives. Route to interested clients."""
-    # Extract uid from the sample (key field)
     try:
-        uid = data["uid"]
+        uid = data.uid
     except Exception:
         return
 
     # SR-004: per-client demux
     for client_id, ws in list(_ws_clients.items()):
         if _interest and _interest.is_interested(client_id, uid):
-            # Fire-and-forget push (async via event loop)
             payload = json.dumps({
                 "topic": topic_name,
-                "uid": uid,
-                "data": _sample_to_dict(data),
+                "uid": int(uid),
+                "data": _sample_to_view_dict(data),
             })
             asyncio.create_task(_ws_send(client_id, ws, payload))
 
@@ -294,15 +268,17 @@ def _on_interest_add(uid: int, period_ms: int) -> None:
     if _gateway is None:
         return
     try:
-        _gateway.write_json(VALUE_REQUEST_TOPIC,
-                            {"addRequest": {"uid": uid, "name": ""}})
+        req = PLC.ValueRequest()
+        req.addRequest = PLC.AddRequest_t(uid=uid, name="")
+        _gateway.write(VALUE_REQUEST_TOPIC, req)
     except Exception:
         logger.exception("value_request_add_failed uid=%d", uid)
     if period_ms != _last_period_ms:
         _last_period_ms = period_ms
         try:
-            _gateway.write_json(VALUE_REQUEST_TOPIC,
-                                {"periodRequest": {"period_ms": period_ms}})
+            req = PLC.ValueRequest()
+            req.periodRequest = PLC.PeriodRequest_t(period_ms=period_ms)
+            _gateway.write(VALUE_REQUEST_TOPIC, req)
         except Exception:
             logger.exception("value_request_period_failed period_ms=%d", period_ms)
 
@@ -313,14 +289,18 @@ def _on_interest_delete(uid: int) -> None:
     if _gateway is None:
         return
     try:
-        _gateway.write_json(VALUE_REQUEST_TOPIC, {"uid": uid})
+        req = PLC.ValueRequest()
+        req.uid = uid
+        _gateway.write(VALUE_REQUEST_TOPIC, req)
     except Exception:
         logger.exception("value_request_delete_failed uid=%d", uid)
 
 
-def _sample_to_dict(data: Any) -> dict[str, Any]:
-    """Convert a DynamicData sample to a browser-friendly JSON dict."""
-    try:
-        return sample_to_dict(data)
-    except Exception:
-        return {"raw": str(data)}
+def _sample_to_view_dict(data: Any) -> dict[str, Any]:
+    """Convert a typed DDS sample to a browser-friendly dict via views."""
+    if isinstance(data, PLC.IdValue):
+        return TagValue.from_idvalue(data).to_dict()
+    elif isinstance(data, PLC.MetaData):
+        return TagMeta.from_metadata(data).to_dict()
+    # Fallback for unknown types
+    return {"raw": str(data)}
