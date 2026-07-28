@@ -44,8 +44,8 @@ import rti.connextdds as dds
 from field_simulation import PLC_HOSTNAME, Tag, build_tags, publish_period_s
 from plc_types import build_plc_types, set_value_t
 
-METADATA_TOPIC = "PLC::MetaData"
-ID_VALUE_TOPIC = "PLC::IdValue"
+METADATA_TOPIC = "PLC::MetaDataTopic"
+ID_VALUE_TOPIC = "PLC::IdValueTopic"
 
 QOS_PROFILES_XML = str(Path(__file__).resolve().parent.parent / "dds" / "qos" / "profiles.xml")
 
