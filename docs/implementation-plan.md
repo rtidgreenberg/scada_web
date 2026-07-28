@@ -51,10 +51,9 @@ the wire type.
 ```
 sim/                    scada-selector         scada_web (Python)        Browser
 ┌────────────┐          ┌──────────────┐       ┌──────────────────┐      ┌─────┐
-│ field_sim  │──DDS───▶│ compiled C++ │──DDS─▶│ discovery.py     │─HTTP─▶│ GUI │
-│ plc_pub    │          │ uid gating   │       │ gateway.py       │◀─WS──│     │
-└────────────┘          └──────────────┘       │ mapping engine   │      └─────┘
-                                               │ interest.py      │
+│ field_sim  │──DDS───▶│ compiled C++ │──DDS─▶│ gateway.py       │─HTTP─▶│ GUI │
+│ plc_pub    │          │ uid gating   │       │ mapping.py      │◀─WS──│     │
+└────────────┘          └──────────────┘       │ interest.py      │      └─────┘
                                                │ server.py        │
                                                └──────────────────┘
 ```
@@ -63,10 +62,10 @@ sim/                    scada-selector         scada_web (Python)        Browser
 
 | # | Component | Work | Status |
 |---|---|---|---|
-| 2.1 | **scada_web gateway** | Wire type learning + dynamic subscription (from YAML config). Already scaffolded in `scada_web/`. | Scaffolded |
-| 2.2 | **Mapping engine** | `mapping.py` — union projection (Value_t → scalar), char[32] → string, field rename/flatten, unit conversion. The thesis under test. | Not started |
+| 2.1 | **scada_web gateway** | Wire type loading + dynamic subscription (from YAML config). | Done |
+| 2.2 | **Mapping engine** | `mapping.py` — union projection (Value_t → scalar), char[32] → string via `to_json()` + char-array fixer (DD-045). | Done |
 | 2.3 | **ValueRequest writer** | Back-channel DDS writer in `gateway.py` to send ADD/DELETE to scada-selector. | Not started |
-| 2.4 | **WebSocket streaming** | Server pushes mapped samples to subscribed clients in real time. | Scaffolded |
+| 2.4 | **WebSocket streaming** | Server pushes mapped samples to subscribed clients in real time. | Done |
 | 2.5 | **Browser GUI update** | GUI consumes the clean view schema (`{uid, timestamp, value, name, limits}`) instead of raw DDS types. Simpler client code. | Not started |
 
 ### Phase 2 Success Criteria

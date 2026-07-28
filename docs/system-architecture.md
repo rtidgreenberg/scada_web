@@ -9,12 +9,11 @@ alone. This document places it in the system and defines the contracts between
 components. Where the TRD's §4 layer diagram describes the *inside* of
 scada-web, this describes the *outside*.
 
-> **Hosting:** both scada-selector and scada-web are **standalone C++ services**;
-> Routing Service is not used. Role 1 is settled by the compiled-types requirement
-> ([DD-026](design-decisions.md#dd-026)); Role 2 awaits sign-off on
-> [OQ-23](questions.md#oq-23), analyzed in
-> [architecture-comparison.md](architecture-comparison.md). The topic contracts in
-> §4 hold either way.
+> **Hosting:** scada-selector is a **standalone C++ service** (compiled types,
+> [DD-026](design-decisions.md#dd-026)); scada-web is a **standalone Python
+> service** using `rti.connextdds` and `DynamicData`
+> ([DD-002](design-decisions.md#dd-002)). Routing Service is not used. The topic
+> contracts in §4 hold either way.
 
 ---
 
@@ -24,7 +23,7 @@ scada-web, this describes the *outside*.
 |---|---|---|---|---|
 | 1 | **scada-sim** — simulated field process + PLC/RTU | 0–1 | Python | Exists ([sim/](../sim/)) |
 | 2 | **scada-selector** — key-based selection | 2 | C++ standalone, **compiled types** ([DD-026](design-decisions.md#dd-026)) | Not started |
-| 3 | **scada-web** — web gateway + mapping engine | 2 | C++ standalone, **DynamicData** ([DD-002](design-decisions.md#dd-002)) | Not started |
+| 3 | **scada-web** — web gateway + mapping engine | 2 | Python (FastAPI + `rti.connextdds`), **DynamicData** ([DD-002](design-decisions.md#dd-002)) | Scaffolded |
 | 4 | **browser interface** — HMI | 2 | Web — [OQ-16](questions.md#oq-16) | Not started |
 
 Per the [scada-sme](../.github/agents/scada-sme.agent.md) guidance on ISA-95
@@ -98,7 +97,7 @@ concern and can only be done where the connections are.
 | Role | Component | Host | Types | Why |
 |---|---|---|---|---|
 | Selection | scada-selector | **Standalone C++** | **Compiled** (rtiddsgen from `PlcValue.idl`) | High-rate stream: the key check must be a struct field access, not a name lookup. Rules out a Routing Service Processor, whose built-in DDS adapter is DynamicData-based ([DD-026](design-decisions.md#dd-026)). |
-| Presentation | scada-web | **Standalone C++** | **DynamicData** ([DD-002](design-decisions.md#dd-002)) | Must handle types it has never seen. REST reads are DataReader semantics — state masks, SQL filters, long-poll WaitSets — which Routing Service has no request/reply primitive to serve. |
+| Presentation | scada-web | **Standalone Python** (FastAPI + `rti.connextdds`) | **DynamicData** ([DD-002](design-decisions.md#dd-002)) | Must handle types it has never seen. Python's `rti.asyncio` gives WaitSet-backed async reads; FastAPI serves REST + WebSocket. C++ was the original product direction but Python is correct for the PoC ([DD-047](design-decisions.md#dd-047)). |
 
 **The two roles have deliberately opposite type strategies**, and each is right
 for its role: Role 1 handles one known type as fast as possible; Role 2 handles

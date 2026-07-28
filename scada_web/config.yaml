@@ -20,7 +20,7 @@ participants:
     domain: 0  # same domain as sim/plc_publisher.py
 
 # --- Topic subscriptions ---
-# Each topic specifies its fully-qualified type name from the XML library.
+# Topic name defaults to type name if type: is omitted.
 topics:
   - name: "PLC::MetaData"
     participant: plc_domain

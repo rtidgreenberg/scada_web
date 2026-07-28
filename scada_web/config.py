@@ -147,7 +147,7 @@ def load_config(path: str | Path) -> ScadaWebConfig:
         cfg.topics.append(TopicConfig(
             name=t["name"],
             participant=t["participant"],
-            type_name=t.get("type", ""),
+            type_name=t.get("type", t["name"]),
             qos_profile=t.get("qos_profile"),
             filter=_parse_filter(t.get("filter")),
         ))
@@ -184,9 +184,6 @@ def _validate(cfg: ScadaWebConfig) -> None:
         if t.participant not in participant_names:
             raise ValueError(
                 f"topic '{t.name}' references unknown participant '{t.participant}'")
-        if not t.type_name:
-            raise ValueError(
-                f"topic '{t.name}' must specify a 'type' (fully-qualified name from XML)")
     topic_names = {t.name for t in cfg.topics}
     for v in cfg.views:
         if v.topic not in topic_names:

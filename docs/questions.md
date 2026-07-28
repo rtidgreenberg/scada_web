@@ -105,7 +105,7 @@ Priorities below are relative to *the PoC*, not to an eventual product.
 | [OQ-50](#oq-50) | `mapping.py` module referenced in `__init__.py` but never created | DECIDED → [DD-045](design-decisions.md#dd-045) | HIGH | DG | View projection dead code path |
 | [OQ-51](#oq-51) | Gateway `_read_loop` fires `on_sample` callback synchronously in async context | DECIDED → [DD-047](design-decisions.md#dd-047) | HIGH | DG | Event-loop starvation under load |
 | [OQ-52](#oq-52) | No QoS set on gateway readers — defaults mismatch publisher QoS | DECIDED → [DD-046](design-decisions.md#dd-046) | HIGH | DG | MetaData never arrives (RELIABLE vs default) |
-| [OQ-53](#oq-53) | Config YAML `type:` key vs dataclass `type_name` field naming inconsistency | OPEN | MEDIUM | DG | Confusing; shadows Python builtin |
+| [OQ-53](#oq-53) | Config YAML `type:` key vs dataclass `type_name` field naming inconsistency | DECIDED | MEDIUM | DG | Confusing; shadows Python builtin |
 | [OQ-54](#oq-54) | `_sample_to_dict` uses `data.to_json()` but DynamicData may not support it | DECIDED → [DD-045](design-decisions.md#dd-045) | MEDIUM | DG | Runtime crash on first sample |
 | [OQ-55](#oq-55) | No input validation on WebSocket `subscribe` messages (uid type, array size) | OPEN | MEDIUM | DG | Crash or DoS from malformed client |
 | [OQ-56](#oq-56) | `types_xml` path is relative but no base-dir resolution documented | OPEN | MEDIUM | DG | Startup fails depending on cwd |
@@ -2012,9 +2012,12 @@ applied to the code yet.
 ### OQ-53
 **Config YAML `type:` key vs dataclass `type_name` field naming inconsistency**
 
-- **Status:** OPEN · **Priority:** MEDIUM · **Owner:** DG
-- **Blocks:** Confusing; shadows Python builtin
+- **Status:** DECIDED · **Priority:** MEDIUM · **Owner:** DG
+- **Blocks:** —
 - **Raised:** 2026-07-27 (scada-web code review)
+- **Decision:** 2026-07-27. Option (b): leave as-is. YAML `type:` reads naturally;
+  Python `type_name` avoids builtin shadow. `type:` now defaults to topic name if
+  omitted, so the key is optional when they match.
 
 **Context.** The YAML uses `type: "PLC::MetaData"` but the dataclass field is
 `type_name: str`. The loader bridges them:

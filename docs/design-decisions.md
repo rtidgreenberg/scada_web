@@ -54,10 +54,10 @@ a stated invalidation condition is a belief, and beliefs are what rot.
 | [DD-003](#dd-003) | Fix `to`/`from` to mean view/wire, not output/input | ACCEPTED | — |
 | [DD-004](#dd-004) | Classify mapping invertibility at compile time | ACCEPTED | — |
 | [DD-005](#dd-005) | Require `<key_mapping>`; restrict it to pure assignment | ACCEPTED | — |
-| [DD-006](#dd-006) | Target C++17 | ACCEPTED | — |
+| [DD-006](#dd-006) | Target C++17 (scada-selector) | ACCEPTED | — |
 | [DD-007](#dd-007) | No runtime IDL parsing in v1 | ACCEPTED | — |
 | [DD-008](#dd-008) | Do not inherit WIS's insecure or ambiguous defaults | ACCEPTED | — |
-| [DD-009](#dd-009) | Async I/O, not thread-per-connection | ACCEPTED | — |
+| [DD-009](#dd-009) | Async I/O, not thread-per-connection | CLOSED by DD-022 | — |
 | [DD-010](#dd-010) | Keep the transformation engine independent of HTTP and DDS | ACCEPTED | — |
 | [DD-011](#dd-011) | The expression language must not be Turing-complete | ACCEPTED | — |
 | [DD-012](#dd-012) | Compile mappings to a flat instruction sequence | ACCEPTED | — |
@@ -234,12 +234,16 @@ unambiguous identity `<assign>`, and requiring it otherwise.
 ---
 
 ### DD-006
-**Target C++17.**
+**Target C++17 for scada-selector.**
 
 - **Status:** ACCEPTED · **Date:** 2026-07-27 · **Affects:** NFR-PORT-003
 
-**Decision.** C++17 is the required standard. C++20 features must not be
-mandatory; C++20 may be enabled where a newer toolchain exists.
+> **Scope note.** This applies to **scada-selector** (the C++ component).
+> scada-web is Python and is not subject to a C++ standard requirement.
+
+**Decision.** C++17 is the required standard for the C++ component. C++20
+features must not be mandatory; C++20 may be enabled where a newer toolchain
+exists.
 
 **Context.** The local toolchain is GCC 9.4 with CMake 3.16. GCC 9 supports C++17
 fully and C++20 only partially. The shipped Connext libraries are built for
@@ -319,8 +323,8 @@ them one at a time; this is not a package deal.
 ### DD-009
 **Use async I/O with a bounded thread pool, not thread-per-connection.**
 
-- **Status:** ACCEPTED as product direction — **deferred beyond the PoC**, see [DD-019](#dd-019)
-- **Date:** 2026-07-27 · **Amended:** 2026-07-27 (PoC scoping) · **Affects:** NFR-PERF-005 [Post-PoC], OQ-5
+- **Status:** **CLOSED by [DD-022](#dd-022)** — thread-per-connection is the intended design
+- **Date:** 2026-07-27 · **Amended:** 2026-07-27 (PoC scoping) · **Closed:** 2026-07-27 · **Affects:** NFR-PERF-005 [Post-PoC], OQ-5
 
 > **Amendment (PoC scoping).** The justification below rests on NFR-PERF-003's
 > 10,000-connection target, which became [Post-PoC] when the reference platform

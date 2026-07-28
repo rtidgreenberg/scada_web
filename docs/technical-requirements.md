@@ -31,10 +31,11 @@ another.
 
 ## 1. Purpose and Scope
 
-`scada_web` is a modern C++ reimplementation of the capability provided by
+`scada_web` is a reimplementation of the capability provided by
 [RTI Web Integration Service](https://community.rti.com/static/documentation/connext-dds/current/doc/manuals/connext_dds_professional/services/web_integration_service/index.html)
 (WIS): a gateway that exposes the RTI Connext DDS global data space to
-web clients over HTTP/REST and WebSocket.
+web clients over HTTP/REST and WebSocket. The PoC is **Python**
+(FastAPI + `rti.connextdds`); a C++ productization remains possible post-PoC.
 
 Beyond parity with WIS, `scada_web` adds a first-class **data model
 transformation and field member mapping** layer, so that the type a web client
@@ -295,8 +296,8 @@ arrays, no type synthesis, and no way to invoke it from a web API.
                     └───────────┬────────────┘
                                 │
                     ┌───────────▼────────────┐
-                    │  DDS Layer             │  Connext Modern C++, XTypes,
-                    │                        │  AsyncWaitSet, type discovery
+                    │  DDS Layer             │  rti.connextdds (Python),
+                    │                        │  rti.asyncio WaitSet, XTypes
                     └────────────────────────┘
 ```
 
@@ -501,12 +502,12 @@ land correctly on the DDS types underneath.
   within an already-selected stream.
 - **FR-XF-022 [Out of scope — relocated]** **Join** — a view composed from more
   than one wire topic, correlated by a declared key expression.
-  **Not built in the mapping engine.** The system's one join
-  (`IdValue` × `MetaData` on `uid`) is performed by scada-selector instead, which
-  already holds per-uid state; see [DD-021](design-decisions.md#dd-021). The
-  mapping engine MUST reject a mapping with more than one `<input>` at compile
-  time, while the schema retains the cardinality so join can be added later
-  without reshaping the plan representation.
+  **Not built in the mapping engine.** The system’s one correlation
+  (`IdValue` × `MetaData` on `uid`) is a reference-data lookup held in scada-web;
+  see [DD-024](design-decisions.md#dd-024) (supersedes DD-021). The mapping engine
+  MUST reject a mapping with more than one `<input>` at compile time, while the
+  schema retains the cardinality so join can be added later without reshaping
+  the plan representation.
 - **FR-XF-023** **Split / fan-out** — one inbound view sample MAY produce writes
   to more than one wire topic. Multi-topic writes are **not** atomic; the API
   MUST report per-topic outcomes and MUST NOT imply transactional semantics.
@@ -764,10 +765,10 @@ debugging tools that matter; the rest is production operations.
   primary target. Version-conditional behavior MUST be isolated behind an
   adapter — notably the 7.7 default of TypeLookup Service and TypeObject v2,
   which changes remote type discovery timing (FR-DDS-008, RISK-4).
-- **NFR-PORT-003** The build MUST target **C++17**. The local toolchain is
-  GCC 9.4 / CMake 3.16, and the shipped Connext libraries are built for
-  `x64Linux4gcc8.5.0`; C++20 features MUST NOT be required. C++20 MAY be enabled
-  optionally where a newer toolchain is available.
+- **NFR-PORT-003** **Applies to scada-selector only.** The C++ build MUST
+  target **C++17**. The local toolchain is GCC 9.4 / CMake 3.16, and the shipped
+  Connext libraries are built for `x64Linux4gcc8.5.0`. scada-web is Python and
+  requires `rti.connextdds` ≥ 7.7.0 (the `rti` Python package).
 - **NFR-PORT-004** No dependency on Routing Service or on WIS binaries at
   runtime. Interop with their configuration formats is a compatibility feature,
   not a dependency.
@@ -897,7 +898,7 @@ parser is hand-written — it is cheap and finds real bugs. If
 | **RISK-2** | Bidirectional mapping is genuinely undecidable for expressive mappings, and users expect writes to work through any view. | High | Do not attempt automatic inversion of general expressions. Classify at compile time (FR-XF-025), surface the class in the API, and require an explicit inbound mapping where inversion is not provable. |
 | **RISK-3** | Instance and key semantics break under transformation, silently corrupting lifecycle state. | High | §6.5 requirements are non-negotiable and gated by property-based tests. Reject at compile time rather than degrade at runtime. |
 | **RISK-4** | Connext 7.7 defaults to TypeLookup Service and TypeObject v2; remote type resolution is asynchronous and discovery callbacks may fire repeatedly and before the type is available. Dynamic reader creation (FR-DDS-008) is fragile. | Medium | Treat type resolution as an explicit state machine with a resolution timeout; never assume a type is present on first callback. Document required `request_types_filter` and type-propagation settings. Keep FR-DDS-008 `MAY`, not `MUST`, for v1. |
-| **RISK-5** | Behavioral parity with WIS is under-specified by the manual; some behavior is only discoverable empirically. | Medium | The conformance suite (NFR-TEST-002) differentially tests against the real WIS 7.7.0 binary, which is installed locally. Ambiguities become test cases, not assumptions. |
+| **RISK-5** | Behavioral parity with WIS is under-specified by the manual; some behavior is only discoverable empirically. | Medium | WIS 7.7.0 is installed locally and used as a behavioral oracle (NFR-TEST-006). Ambiguities become test cases, not assumptions. |
 | **RISK-6** | Connext's JSON conversion has undocumented edge-case behavior, so FR-TYPE-005 losslessness is not guaranteed by the platform. | Medium | Own the JSON codec against `DynamicData` accessors rather than delegating to `to_string`/`from_string`, if property tests find losses. Decide by spike. |
 | **RISK-7** | Reimplementing an RTI product creates a support and licensing boundary question. | Medium | Resolve with RTI before committing engineering (OQ-1). We consume documented public APIs only. |
 | **RISK-8** | Scope. The mapping DSL can absorb unlimited effort. | High | Build §6.2 (field mapping) and §6.3 (expressions) only. Join (FR-XF-022) and split (FR-XF-023) are out of the PoC. |
