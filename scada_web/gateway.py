@@ -227,20 +227,12 @@ class DdsGateway:
         return self._get_type(type_name)
 
     def read_samples(self, topic_name: str) -> list[tuple[Any, Any]]:
-        """Read current samples for a topic without removing them from DDS cache."""
-        runtime = self._topics[topic_name]
-        reader = runtime.reader
-        if reader is None:
-            return []
-        return [(data, info) for data, info in reader.read() if info.valid]
-
-    def snapshot(self, topic_name: str) -> list[tuple[Any, Any]]:
         """Every retained sample for a topic, regardless of sample state.
 
-        Used when a WIS client binds a reader: samples already consumed by the
-        push loop are still in the reader cache, and a browser that connects
-        after startup must still receive them — TRANSIENT_LOCAL metadata is
-        published once per tag, so without this the UI never learns tag names.
+        Includes samples already consumed by the push loop, so a browser that
+        connects after startup still receives them — TRANSIENT_LOCAL metadata
+        is published once per tag, so without this the UI never learns tag
+        names.
         """
         runtime = self._topics[topic_name]
         reader = runtime.reader
@@ -249,19 +241,6 @@ class DdsGateway:
         return [(data, info)
                 for data, info in reader.select().state(dds.DataState.any).read()
                 if info.valid]
-
-    def take_samples(self, topic_name: str,
-                     max_samples: int | None = None) -> list[tuple[Any, Any]]:
-        """Take (remove) samples from the reader cache — WIS read semantics
-        with removeFromReaderCache=true."""
-        runtime = self._topics[topic_name]
-        reader = runtime.reader
-        if reader is None:
-            return []
-        selector = reader.select().state(dds.DataState.any)
-        if max_samples is not None:
-            selector = selector.max_samples(max_samples)
-        return [(data, info) for data, info in selector.take() if info.valid]
 
     @property
     def writers(self) -> list[str]:

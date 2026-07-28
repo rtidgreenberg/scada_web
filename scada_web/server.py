@@ -1,20 +1,16 @@
 """Web server — REST + WebSocket surface for scada_web.
 
-FastAPI/uvicorn-based. Exposes two surfaces on one port:
+FastAPI/uvicorn-based. Exposes:
 
-  Native:
   - REST: GET /api/v1/topics, GET /api/v1/topics/{name}/samples
   - WebSocket: /ws — streaming push of samples to subscribed clients
   - Health: GET /health
 
-  WIS-compatible (wis_routes.py, enabled by the `wis:` config block):
-  - POST /dds/v1/websocket_connections, /dds/rest1/... , WS /dds/websocket/{c}
-    so browser clients written against RTI Web Integration Service run
-    unchanged.
-
 The server knows nothing about DDS directly — it receives samples from the
 gateway via callback and routes them to interested clients via InterestManager
-(native surface) and the WisHub (WIS surface).
+(SR-004 per-client demux by uid). Client interest changes (subscribe/
+unsubscribe/period) are translated into ValueRequest DDS writes consumed by
+scada_select's ControlPlane.
 """
 
 from __future__ import annotations
@@ -31,28 +27,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import wis
 from .config import ScadaWebConfig
 from .gateway import DdsGateway
 from .interest import InterestManager
 from .mapping import sample_to_dict
-from .wis_routes import WisHub, create_wis_router
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="scada_web", version="0.1.0")
+
+# The DDS topic name ValueRequest commands are written to (see config.yaml).
+VALUE_REQUEST_TOPIC = "PLC::ValueRequestTopic"
 
 # These are set by create_app() at startup
 _gateway: DdsGateway | None = None
 _interest: InterestManager | None = None
 _config: ScadaWebConfig | None = None
 _ws_clients: dict[str, WebSocket] = {}
-_wis_hub: WisHub | None = None
+_last_period_ms: int | None = None
 
 
 def create_app(config: ScadaWebConfig) -> FastAPI:
     """Wire up the FastAPI app with DDS gateway and interest manager."""
-    global _gateway, _interest, _config, _wis_hub
+    global _gateway, _interest, _config
     _config = config
     _gateway = DdsGateway(config)
     _interest = InterestManager(
@@ -62,26 +59,15 @@ def create_app(config: ScadaWebConfig) -> FastAPI:
     )
     _gateway.on_sample = _on_dds_sample
 
-    if config.wis.enabled:
-        registry = wis.build_registry(config)
-        wis_router, _wis_hub = create_wis_router(config, _gateway, registry)
-        app.include_router(wis_router)
-        # WIS defaults -accessControlAllow{Origin,Methods,Headers} to '*'; the
-        # browser client POSTs cross-origin when the page is served elsewhere.
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=config.wis.allow_origins,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-        logger.info("wis_surface_enabled application=%s resources=%d",
-                    config.wis.application, len(registry.uris))
-        for uri in registry.uris:
-            logger.info("wis_resource %s", uri)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-    # Serve the browser UI, mirroring WIS -documentRoot. Mounted last so it
-    # cannot shadow the API routes.
-    document_root = config.wis.document_root
+    # Serve the browser UI. Mounted last so it cannot shadow the API routes.
+    document_root = config.document_root
     if document_root:
         root = Path(document_root)
         if root.is_dir():
@@ -271,17 +257,6 @@ def _on_dds_sample(topic_name: str, data: Any, info: Any) -> None:
     except Exception:
         return
 
-    # WIS clients receive only the uids they selected with a ValueRequest ADD.
-    # WIS itself relays every sample on a bound reader; scada_web deliberately
-    # does not, because the field domain carries every tag at full rate and the
-    # browser re-renders its whole table per sample. See docs/wis-compatibility.md.
-    if _wis_hub is not None and _wis_hub.wants(topic_name, uid):
-        try:
-            _wis_hub.push(topic_name, uid, wis.sample_envelope(
-                _sample_to_dict(data), info))
-        except Exception:
-            logger.exception("wis_push_failed topic=%s", topic_name)
-
     # SR-004: per-client demux
     for client_id, ws in list(_ws_clients.items()):
         if _interest and _interest.is_interested(client_id, uid):
@@ -304,19 +279,37 @@ async def _ws_send(client_id: str, ws: WebSocket, payload: str) -> None:
 
 def _on_interest_add(uid: int, period_ms: int) -> None:
     """Interest 0→1: send selector ADD command via ValueRequest union."""
+    global _last_period_ms
     logger.info("selector_add uid=%d period_ms=%d", uid, period_ms)
-    # TODO: write ValueRequest{ADD, addRequest={uid, name}} via DDS DataWriter
-    # If period_ms != current separation, also send PERIOD command
+    if _gateway is None:
+        return
+    try:
+        _gateway.write_json(VALUE_REQUEST_TOPIC,
+                            {"addRequest": {"uid": uid, "name": ""}})
+    except Exception:
+        logger.exception("value_request_add_failed uid=%d", uid)
+    if period_ms != _last_period_ms:
+        _last_period_ms = period_ms
+        try:
+            _gateway.write_json(VALUE_REQUEST_TOPIC,
+                                {"periodRequest": {"period_ms": period_ms}})
+        except Exception:
+            logger.exception("value_request_period_failed period_ms=%d", period_ms)
 
 
 def _on_interest_delete(uid: int) -> None:
     """Interest 1→0: send ValueRequest{DELETE, uid} to selector."""
     logger.info("selector_delete uid=%d", uid)
-    # TODO: write ValueRequest{DELETE, uid} via DDS DataWriter
+    if _gateway is None:
+        return
+    try:
+        _gateway.write_json(VALUE_REQUEST_TOPIC, {"uid": uid})
+    except Exception:
+        logger.exception("value_request_delete_failed uid=%d", uid)
 
 
 def _sample_to_dict(data: Any) -> dict[str, Any]:
-    """Convert a DynamicData sample to WIS-compatible JSON dict."""
+    """Convert a DynamicData sample to a browser-friendly JSON dict."""
     try:
         return sample_to_dict(data)
     except Exception:
