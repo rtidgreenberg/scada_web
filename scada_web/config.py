@@ -75,6 +75,12 @@ class ServerConfig:
 
 
 @dataclass
+class SelectionConfig:
+    """Selection defaults for web-originated ValueRequest commands."""
+    default_min_separation_ms: int = 250
+
+
+@dataclass
 class ScadaWebConfig:
     """Root configuration for scada_web."""
     types_xml: str = ""  # path to XML type library (rtiddsgen -convertToXml output)
@@ -82,6 +88,7 @@ class ScadaWebConfig:
     participants: list[ParticipantConfig] = field(default_factory=list)
     topics: list[TopicConfig] = field(default_factory=list)
     views: list[ViewConfig] = field(default_factory=list)
+    selection: SelectionConfig = field(default_factory=SelectionConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
 
     # --- convenience lookups ---
@@ -161,6 +168,14 @@ def load_config(path: str | Path) -> ScadaWebConfig:
             fields=fields,
         ))
 
+    # Selection defaults
+    selection = raw.get("selection", {})
+    cfg.selection = SelectionConfig(
+        default_min_separation_ms=int(
+            selection.get("default_min_separation_ms", 250)
+        ),
+    )
+
     # Server
     if "server" in raw:
         s = raw["server"]
@@ -179,11 +194,17 @@ def _validate(cfg: ScadaWebConfig) -> None:
     """Cross-reference validation (participant refs exist, etc.)."""
     if not cfg.types_xml:
         raise ValueError("config must specify types.xml path")
+    if cfg.selection.default_min_separation_ms < 0:
+        raise ValueError("selection.default_min_separation_ms must be >= 0")
+    if cfg.topics and not cfg.qos_profiles:
+        raise ValueError("config must specify qos_profiles when topics are declared")
     participant_names = {p.name for p in cfg.participants}
     for t in cfg.topics:
         if t.participant not in participant_names:
             raise ValueError(
                 f"topic '{t.name}' references unknown participant '{t.participant}'")
+        if not t.qos_profile:
+            raise ValueError(f"topic '{t.name}' must specify qos_profile")
     topic_names = {t.name for t in cfg.topics}
     for v in cfg.views:
         if v.topic not in topic_names:
