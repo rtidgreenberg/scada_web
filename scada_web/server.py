@@ -249,15 +249,16 @@ async def _ws_send(client_id: str, ws: WebSocket, payload: str) -> None:
 
 
 def _on_interest_add(uid: int, period_ms: int) -> None:
-    """Interest 0→1 or global separation change: send selector ADD payload."""
+    """Interest 0→1: send selector ADD command via ValueRequest union."""
     logger.info("selector_add uid=%d period_ms=%d", uid, period_ms)
-    # TODO: write ValueRequest(uid, ADD, period_ms) via a DDS DataWriter
+    # TODO: write ValueRequest{ADD, addRequest={uid, name}} via DDS DataWriter
+    # If period_ms != current separation, also send PERIOD command
 
 
 def _on_interest_delete(uid: int) -> None:
-    """Interest 1→0: would send ValueRequest DELETE to selector."""
+    """Interest 1→0: send ValueRequest{DELETE, uid} to selector."""
     logger.info("selector_delete uid=%d", uid)
-    # TODO: write ValueRequest(uid, DELETE) via a DDS DataWriter
+    # TODO: write ValueRequest{DELETE, uid} via DDS DataWriter
 
 
 def _sample_to_dict(data: Any) -> dict[str, Any]:
