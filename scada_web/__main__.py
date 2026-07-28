@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import logging.handlers
 import socket
 from pathlib import Path
 
@@ -10,10 +11,21 @@ import uvicorn
 from .config import load_config
 from .server import create_app
 
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-5s %(name)s — %(message)s",
     datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),
+        logging.handlers.RotatingFileHandler(
+            LOG_DIR / "scada_web.log",
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+        ),
+    ],
 )
 
 

@@ -1,6 +1,10 @@
 __pycache__/
 *.pyc
 
+# Log files (keep the directory, ignore contents)
+logs/*.log
+logs/*.log.*
+
 # scada_select CMake build directory (rtiddsgen output + object files +
 # binaries, all regenerated via the rtime-make/cmake build).
 scada_select/build/

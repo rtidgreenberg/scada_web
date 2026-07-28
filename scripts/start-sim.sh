@@ -165,7 +165,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
-    exec python3 "$SIM_SCRIPT" --domain-id "$DOMAIN_ID" "${EXTRA_ARGS[@]}"
+    exec python3 "$SIM_SCRIPT" --domain-id "$DOMAIN_ID" "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$SCRIPT_DIR/logs/sim.log"
 else
-    exec python3 "$SIM_SCRIPT" --domain-id "$DOMAIN_ID"
+    exec python3 "$SIM_SCRIPT" --domain-id "$DOMAIN_ID" 2>&1 | tee -a "$SCRIPT_DIR/logs/sim.log"
 fi

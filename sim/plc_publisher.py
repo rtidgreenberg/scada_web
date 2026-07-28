@@ -33,6 +33,8 @@ Usage:
 
 import argparse
 import heapq
+import logging
+import logging.handlers
 import sys
 import time
 from pathlib import Path
@@ -40,6 +42,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import rti.connextdds as dds
+
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-5s %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),
+        logging.handlers.RotatingFileHandler(
+            LOG_DIR / "sim.log",
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+        ),
+    ],
+)
+logger = logging.getLogger("scada_sim")
 
 from field_simulation import PLC_HOSTNAME, Tag, build_tags, publish_period_s
 from plc_types import build_plc_types, set_value_t
@@ -124,17 +144,17 @@ def run(domain_id: int, verbose: bool) -> None:
         publisher, id_value_topic, _id_value_writer_qos()
     )
 
-    print(
-        f"PLC sim '{PLC_HOSTNAME}' publishing {len(tags)} tags on domain "
-        f"{domain_id}: '{METADATA_TOPIC}' (once at startup) and "
-        f"'{ID_VALUE_TOPIC}' (per-tag rate: uid 1-100 @ 2 Hz, 101-200 @ 1 Hz, "
-        f"201-300 every 5s, 301-500 every 10s)."
+    logger.info(
+        "PLC sim '%s' publishing %d tags on domain %d: '%s' (once at startup) "
+        "and '%s' (per-tag rate: uid 1-100 @ 2 Hz, 101-200 @ 1 Hz, "
+        "201-300 every 5s, 301-500 every 10s).",
+        PLC_HOSTNAME, len(tags), domain_id, METADATA_TOPIC, ID_VALUE_TOPIC,
     )
 
     for tag in tags:
         _write_metadata(metadata_writer, types.metadata, tag)
         if verbose:
-            print(f"  metadata: uid={tag.uid} name={tag.name}")
+            logger.debug("metadata: uid=%d name=%s", tag.uid, tag.name)
 
     smoothed_by_uid = {tag.uid: None for tag in tags}
     start = time.monotonic()
@@ -161,14 +181,14 @@ def run(domain_id: int, verbose: bool) -> None:
                 id_value_writer, types.id_value, tag, t, smoothed_by_uid[uid]
             )
             if verbose:
-                print(
-                    f"  {tag.name}: raw={tag.raw_value(t):.2f} "
-                    f"smoothed={smoothed_by_uid[uid]:.2f} {tag.units}"
+                logger.debug(
+                    "%s: raw=%.2f smoothed=%.2f %s",
+                    tag.name, tag.raw_value(t), smoothed_by_uid[uid], tag.units,
                 )
 
             heapq.heappush(schedule, (due_time + period, uid, period))
     except KeyboardInterrupt:
-        print("\nStopping PLC sim.")
+        logger.info("Stopping PLC sim.")
 
 
 def main() -> None:

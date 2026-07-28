@@ -158,7 +158,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
-    exec "$SELECTOR_BIN" --config "$CONFIG" "${EXTRA_ARGS[@]}"
+    exec "$SELECTOR_BIN" --config "$CONFIG" "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$SCRIPT_DIR/logs/scada_select.log"
 else
-    exec "$SELECTOR_BIN" --config "$CONFIG"
+    exec "$SELECTOR_BIN" --config "$CONFIG" 2>&1 | tee -a "$SCRIPT_DIR/logs/scada_select.log"
 fi
