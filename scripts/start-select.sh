@@ -157,8 +157,16 @@ if [[ "$DRY_RUN" == "true" ]]; then
     exit 0
 fi
 
-if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
-    exec "$SELECTOR_BIN" --config "$CONFIG" "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$SCRIPT_DIR/logs/scada_select.log"
-else
-    exec "$SELECTOR_BIN" --config "$CONFIG" 2>&1 | tee -a "$SCRIPT_DIR/logs/scada_select.log"
-fi
+# The selector logs to stderr with no file handler of its own, so unlike the two
+# Python components it does need a tee here. It must not be a *pipeline* though:
+# `exec cmd | tee` replaces only the left-hand subshell, leaving this bash alive
+# as the parent of [scada_selector, tee]. A SIGTERM to the script then killed the
+# banner and not the selector, which held the DDS domain and leaked a process per
+# test teardown.
+#
+# Redirecting through process substitution instead keeps both the console and the
+# log file, and lets exec do its job: scada_selector becomes this PID, so SIGTERM
+# and Ctrl-C reach it directly.
+mkdir -p "$SCRIPT_DIR/logs"
+exec > >(tee -a "$SCRIPT_DIR/logs/scada_select.log") 2>&1
+exec "$SELECTOR_BIN" --config "$CONFIG" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}

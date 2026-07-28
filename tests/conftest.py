@@ -15,6 +15,7 @@ import asyncio
 import os
 import signal
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Generator, List
@@ -80,23 +81,40 @@ def _wait_for_http(host: str, port: int, path: str = "/health",
 
 def _start_process(cmd: List[str], label: str, env=None,
                    cwd=None) -> subprocess.Popen:
-    """Start a subprocess, capturing stdout/stderr for diagnostics."""
+    """Start a subprocess, capturing stdout/stderr for startup diagnostics."""
     merged_env = {**os.environ, **(env or {})}
+    # Startup output goes to a temp file, not a PIPE. These fixtures are
+    # long-lived and nothing drains the pipe during the session, so a PIPE fills
+    # its 64 KiB buffer and then blocks the component mid-write -- which presents
+    # as a component going silent, indistinguishable from a DDS stall. A file
+    # never blocks the writer, and each component also has its own rotating log
+    # under logs/ for anything past startup.
+    log = tempfile.TemporaryFile()
     proc = subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE,
+        stdout=log,
         stderr=subprocess.STDOUT,
         cwd=cwd or REPO_ROOT,
         env=merged_env,
     )
+    proc._startup_log = log  # type: ignore[attr-defined]  # for _drain_startup_log
     # Give it a moment to crash-check
     time.sleep(0.5)
     if proc.poll() is not None:
-        output = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
         raise RuntimeError(
-            f"{label} exited immediately (rc={proc.returncode}):\n{output}"
+            f"{label} exited immediately (rc={proc.returncode}):\n"
+            f"{_drain_startup_log(proc)}"
         )
     return proc
+
+
+def _drain_startup_log(proc: subprocess.Popen) -> str:
+    """Read whatever the process has written so far. Never blocks."""
+    log = getattr(proc, "_startup_log", None)
+    if log is None:
+        return ""
+    log.seek(0)
+    return log.read().decode(errors="replace")
 
 
 def _stop_process(proc: subprocess.Popen, label: str, timeout: float = 5.0):
@@ -156,9 +174,16 @@ def scada_web_process(selector_process) -> Generator[subprocess.Popen, None, Non
         label="scada_web",
     )
     if not _wait_for_http(SCADA_WEB_HOST, SCADA_WEB_PORT):
-        output = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
+        # Stop first, then read. This branch is reached precisely when the process
+        # started but never became healthy -- i.e. it is still running -- so
+        # reading its output before stopping it waits for an EOF that never comes.
+        # That turned the most common startup failure (port still held, missing
+        # license, QoS error) into an indefinite hang, and the RuntimeError below
+        # was never raised.
         _stop_process(proc, "scada_web")
-        raise RuntimeError(f"scada_web failed to become healthy:\n{output}")
+        raise RuntimeError(
+            f"scada_web failed to become healthy:\n{_drain_startup_log(proc)}"
+        )
     yield proc
     _stop_process(proc, "scada_web")
 
