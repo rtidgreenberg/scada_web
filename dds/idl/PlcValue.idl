@@ -33,6 +33,7 @@ module PLC {
 		double float64Value;
 	};
     
+	@nested
 	struct Limits_t {
 		Value_t redHigh;
 		Value_t redLow;
@@ -66,24 +67,38 @@ module PLC {
 	enum Command_t {
 		ADD,
 		DELETE,
-		METADATA
+		METADATA,
+		PERIOD
+	};
+
+	@nested
+	struct AddRequest_t {
+		UniqueId_t     uid;
+		Name_t         name;
+	};
+
+	@nested
+	struct PeriodRequest_t {
+		unsigned long  period_ms;
 	};
 
     const string ValueRequestTopic = "PLC::ValueRequestTopic";
 	// Sent by scada_web to scada_selector to select which values are
 	// republished on the selected-value topic, and how often.
 	//
-	// period_ms applies to ADD and sets the maximum publish rate for that uid:
-	// the selector forwards at most one sample per uid per period, discarding
-	// the rest. 0 means forward every sample. Re-sending ADD for a uid that is
-	// already enabled updates its rate. period_ms is ignored for DELETE and
-	// METADATA. Instance lifecycle notifications (dispose/unregister) are not
-	// rate limited.
-	struct ValueRequest {
-		UniqueId_t     uid;
-		Name_t         name;
-		Command_t      command;
-		unsigned long  period_ms;
+	// ADD enables forwarding for a uid (by name). DELETE and METADATA act on
+	// an existing uid. PERIOD sets the maximum publish rate for a uid: the
+	// selector forwards at most one sample per uid per period, discarding
+	// the rest. period_ms of 0 means forward every sample. Instance
+	// lifecycle notifications (dispose/unregister) are not rate limited.
+	union ValueRequest switch (Command_t) {
+	case ADD:
+		AddRequest_t     addRequest;
+	case DELETE:
+	case METADATA:
+		UniqueId_t       uid;
+	case PERIOD:
+		PeriodRequest_t  periodRequest;
 	};
 
 };

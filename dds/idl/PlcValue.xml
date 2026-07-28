@@ -39,7 +39,7 @@
         <member name="float64Value" type="float64"/>
     </case>
   </union>
-  <struct name= "Limits_t">
+  <struct name= "Limits_t" nested="true">
     <member name="redHigh" type="nonBasic"  nonBasicTypeName= "PLC::Value_t"/>
     <member name="redLow" type="nonBasic"  nonBasicTypeName= "PLC::Value_t"/>
     <member name="yellowHigh" type="nonBasic"  nonBasicTypeName= "PLC::Value_t"/>
@@ -48,6 +48,7 @@
     <member name="greenLow" type="nonBasic"  nonBasicTypeName= "PLC::Value_t"/>
     <member name="active" type="boolean"/>
   </struct>
+  <const name="MetaDataTopic" type="string" value="&quot;PLC::MetaDataTopic&quot;"/>
   <struct name= "MetaData">
     <member name="uid" type="nonBasic"  nonBasicTypeName= "PLC::UniqueId_t" key="true"/>
     <member name="valueTime" type="nonBasic"  nonBasicTypeName= "PLC::ValueTime_t"/>
@@ -55,6 +56,7 @@
     <member name="limits" type="nonBasic"  nonBasicTypeName= "PLC::Limits_t"/>
     <member name="longName" type="nonBasic"  nonBasicTypeName= "PLC::Name_t"/>
   </struct>
+  <const name="IdValueTopic" type="string" value="&quot;PLC::IdValueTopic&quot;"/>
   <struct name= "IdValue">
     <member name="uid" type="nonBasic"  nonBasicTypeName= "PLC::UniqueId_t" key="true"/>
     <member name="valueTime" type="nonBasic"  nonBasicTypeName= "PLC::ValueTime_t"/>
@@ -65,13 +67,32 @@
     <enumerator name="ADD"/>
     <enumerator name="DELETE"/>
     <enumerator name="METADATA"/>
+    <enumerator name="PERIOD"/>
   </enum> 
-  <struct name= "ValueRequest">
+  <struct name= "AddRequest_t" nested="true">
     <member name="uid" type="nonBasic"  nonBasicTypeName= "PLC::UniqueId_t"/>
     <member name="name" type="nonBasic"  nonBasicTypeName= "PLC::Name_t"/>
-    <member name="command" type="nonBasic"  nonBasicTypeName= "PLC::Command_t"/>
+  </struct>
+  <struct name= "PeriodRequest_t" nested="true">
     <member name="period_ms" type="uint32"/>
   </struct>
+  <const name="ValueRequestTopic" type="string" value="&quot;PLC::ValueRequestTopic&quot;"/>
+  <union name="ValueRequest">
+    <discriminator type="nonBasic" nonBasicTypeName="PLC::Command_t"/>
+    <case>
+      <caseDiscriminator value="(PLC::ADD)"/>
+        <member name="addRequest" type="nonBasic"  nonBasicTypeName= "PLC::AddRequest_t"/>
+    </case>
+    <case>
+      <caseDiscriminator value="(PLC::DELETE)"/>
+<caseDiscriminator value="(PLC::METADATA)"/>
+        <member name="uid" type="nonBasic"  nonBasicTypeName= "PLC::UniqueId_t"/>
+    </case>
+    <case>
+      <caseDiscriminator value="(PLC::PERIOD)"/>
+        <member name="periodRequest" type="nonBasic"  nonBasicTypeName= "PLC::PeriodRequest_t"/>
+    </case>
+  </union>
 </module>
 </types>
 </dds>
