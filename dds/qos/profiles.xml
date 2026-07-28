@@ -79,12 +79,18 @@
           <kind>KEEP_LAST_HISTORY_QOS</kind>
           <depth>1</depth>
         </history>
-        <!-- DD-042: bounded resource limits give burst headroom without letting
-             a stalled selector block the sim's writer indefinitely. Cache
-             overflow becomes a logged sample_lost_status count, not silent. -->
-        <resource_limits>
-          <max_samples_per_instance>8</max_samples_per_instance>
-        </resource_limits>
+        <!-- DD-042: KEEP_LAST(1) is the bound, and it is deliberate. A depth
+             above 1 would give burst headroom at the cost of correctness here:
+             the selector decimates on arrival and forwards the FIRST eligible
+             sample of a batch, so a deeper queue would put stale values on the
+             display (architecture §3.3, "latest sample wins").
+
+             There is therefore no resource_limits entry: max_samples_per_instance
+             cannot bind under KEEP_LAST(1) and would only read as protection that
+             is not there. Not keeping up is instead reported by the selector from
+             DataReaderCacheStatus.replaced_dropped_sample_count, which counts
+             exactly the unread samples this reader overwrote. SAMPLE_LOST and
+             SAMPLE_REJECTED do not fire for local KEEP_LAST replacement. -->
       </datareader_qos>
     </qos_profile>
 
@@ -101,9 +107,19 @@
       <datawriter_qos>
         <reliability>
           <kind>RELIABLE_RELIABILITY_QOS</kind>
-          <!-- DD-028: a timeout is a logged drop, never a retry inside the
-               dispatch callback, so a stalled scada_web reader cannot
-               block the selector's field-side reception. -->
+          <!-- DD-029 made this side RELIABLE, which means the boundary invariant
+               (no soft-side congestion reaches the field side) is enforced by
+               discipline rather than by construction. Three things enforce it:
+
+               1. KEEP_LAST(1) below, so a slow reader cannot accumulate a queue
+                  this writer must retain.
+               2. An unlimited send window, stated explicitly below, so ACK
+                  progress never throttles write().
+               3. A short max_blocking_time, so that if 1 and 2 are ever
+                  changed, write() fails fast instead of stalling the dispatch
+                  thread. The selector catches the timeout, counts it, and
+                  continues; it never retries inside the callback
+                  (architecture §3.8 rule 2). -->
           <max_blocking_time>
             <sec>0</sec>
             <nanosec>100000000</nanosec>
@@ -117,6 +133,15 @@
           <kind>KEEP_LAST_HISTORY_QOS</kind>
           <depth>1</depth>
         </history>
+        <!-- Stated, not inherited: this is the default, but it is the property
+             the boundary depends on, so a future profile edit has to remove it
+             deliberately rather than by picking up a strict-reliable snippet. -->
+        <protocol>
+          <rtps_reliable_writer>
+            <min_send_window_size>LENGTH_UNLIMITED</min_send_window_size>
+            <max_send_window_size>LENGTH_UNLIMITED</max_send_window_size>
+          </rtps_reliable_writer>
+        </protocol>
       </datawriter_qos>
       <datareader_qos>
         <reliability>
@@ -139,6 +164,9 @@
       <datawriter_qos>
         <reliability>
           <kind>RELIABLE_RELIABILITY_QOS</kind>
+          <!-- Same bounded-blocking contract as selected_value above. This is
+               the topic scada_web's tag catalogue depends on, and it is served
+               by durability now that DD-029 puts RELIABLE on both ends. -->
           <max_blocking_time>
             <sec>0</sec>
             <nanosec>100000000</nanosec>
@@ -152,6 +180,12 @@
           <kind>KEEP_LAST_HISTORY_QOS</kind>
           <depth>1</depth>
         </history>
+        <protocol>
+          <rtps_reliable_writer>
+            <min_send_window_size>LENGTH_UNLIMITED</min_send_window_size>
+            <max_send_window_size>LENGTH_UNLIMITED</max_send_window_size>
+          </rtps_reliable_writer>
+        </protocol>
       </datawriter_qos>
       <datareader_qos>
         <reliability>

@@ -99,9 +99,11 @@ module PLC {
 	//
 	// ADD enables forwarding for a uid (by name). DELETE and METADATA act on
 	// an existing uid. PERIOD sets the selector's global minimum separation
-	// between forwarded samples: 0 means use the selector YAML default;
-	// nonzero overrides the runtime setting. Instance lifecycle notifications
-	// (dispose/unregister) are not rate limited.
+	// between forwarded samples: nonzero overrides it, and 0 restores the
+	// selector's configured startup default. 0 is NOT "send every sample" --
+	// the presentation side cannot request the full field rate; only the
+	// selector's own configuration can set that locally. Instance lifecycle
+	// notifications (dispose/unregister) are not rate limited.
 	union ValueRequest switch (Command_t) {
 	case ADD:
 		AddRequest_t     addRequest;
