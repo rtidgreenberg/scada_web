@@ -261,7 +261,12 @@ function agoText(ts) {
   return (s / 60).toFixed(0) + "m ago";
 }
 function visibleUids() {
-  return [...tags.keys()].sort((a, b) => a - b);
+  // Selected (watched) tags first, then the rest — each group sorted by uid.
+  return [...tags.keys()].sort((a, b) => {
+    const wa = tags.get(a).watched ? 0 : 1;
+    const wb = tags.get(b).watched ? 0 : 1;
+    return wa - wb || a - b;
+  });
 }
 function render() {
   const uids = visibleUids();
