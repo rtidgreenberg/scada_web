@@ -116,28 +116,23 @@ class TestPlcPublisherDDS:
         except ImportError:
             pytest.skip("rti.connextdds not available")
 
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sim"))
-        from plc_types import build_plc_types
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from dds.gen.PlcValue import PLC
 
-        types = build_plc_types()
         participant = dds.DomainParticipant(15)
 
-        metadata_topic = dds.DynamicData.Topic(
-            participant, "PLC::MetaDataTopic", types.metadata
-        )
-        idvalue_topic = dds.DynamicData.Topic(
-            participant, "PLC::IdValueTopic", types.id_value
-        )
+        metadata_topic = dds.Topic(participant, "PLC::MetaDataTopic", PLC.MetaData)
+        idvalue_topic = dds.Topic(participant, "PLC::IdValueTopic", PLC.IdValue)
 
         # Reliable + TRANSIENT_LOCAL for metadata (late-join)
         meta_qos = dds.DataReaderQos()
         meta_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         meta_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-        meta_reader = dds.DynamicData.DataReader(
+        meta_reader = dds.DataReader(
             participant.implicit_subscriber, metadata_topic, meta_qos
         )
 
-        value_reader = dds.DynamicData.DataReader(
+        value_reader = dds.DataReader(
             participant.implicit_subscriber, idvalue_topic
         )
 
@@ -159,7 +154,7 @@ class TestPlcPublisherDDS:
         assert len(valid) > 0, "No MetaData samples received from publisher"
         # Check structure of first sample
         sample = valid[0].data
-        uid = sample["uid"]
+        uid = sample.uid
         assert 1 <= uid <= TAG_COUNT
 
     def test_idvalue_samples_flow(self, sim_process, dds_subscriber):
@@ -171,7 +166,7 @@ class TestPlcPublisherDDS:
         assert len(valid) > 0, "No IdValue samples received within 3s"
         # Verify uid field exists and is in range
         for s in valid[:10]:
-            uid = s.data["uid"]
+            uid = s.data.uid
             assert 1 <= uid <= TAG_COUNT
 
     def test_idvalue_covers_multiple_bands(self, sim_process, dds_subscriber):
@@ -181,7 +176,7 @@ class TestPlcPublisherDDS:
         samples = reader.take()
         valid = [s for s in samples if s.info.valid]
 
-        uids = {s.data["uid"] for s in valid}
+        uids = {s.data.uid for s in valid}
         fast_uids = {u for u in uids if u <= 100}
         slow_uids = {u for u in uids if u > 300}
 

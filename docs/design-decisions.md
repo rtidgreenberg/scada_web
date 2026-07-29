@@ -1,7 +1,7 @@
 # scada_web — Design Decision Log
 
 **Status:** Living document — this is the canonical record of *why*.
-**Last updated:** 2026-07-27
+**Last updated:** 2026-07-28
 
 Lightweight ADRs. One decision per entry, numbered `DD-nnn`, never renumbered
 and never deleted. A decision that turns out wrong gets a new entry that
@@ -79,6 +79,7 @@ a stated invalidation condition is a belief, and beliefs are what rot.
 | [DD-045](#dd-045) | `mapping.py` applies WIS-compatible DynamicData→JSON transforms automatically | SUPERSEDED by DD-052/DD-053 | OQ-50, OQ-54, OQ-58 |
 | [DD-052](#dd-052) | scada-web uses Python generated types, not DynamicData | ACCEPTED | — |
 | [DD-053](#dd-053) | Field mapping is Python code, not config | ACCEPTED | — |
+| [DD-054](#dd-054) | The sim uses the same generated types as scada-web; the independent DynamicData implementation is retired | ACCEPTED | — |
 
 ---
 
@@ -2181,3 +2182,57 @@ favour of explicit classmethods that are individually unit-testable.
 **Revisit if.** Non-Python operators need to edit mappings without touching code.
 In that case, add a thin YAML layer that generates the classmethods — do not
 replace this pattern with a runtime interpreter.
+
+---
+
+### DD-054
+**The sim uses the same generated Python types as scada-web; the independent
+DynamicData implementation (CR-007) is retired.**
+
+- **Status:** ACCEPTED · **Date:** 2026-07-28 · **Resolves:** — · **Affects:** [sim/plc_publisher.py](../sim/plc_publisher.py), [sim/plc_test_subscriber.py](../sim/plc_test_subscriber.py), tests
+
+**Decision.** `sim/plc_publisher.py` and `sim/plc_test_subscriber.py` import
+`PLC` from `dds/gen/PlcValue.py` — the same DD-052 codegen output
+scada-web uses — instead of hand-building `DynamicType`s. `sim/plc_types.py`
+(the `build_plc_types`/`set_value_t`/`get_value_t` module) is deleted.
+`tests/test_scada_select.py` and `tests/test_sim.py` follow the same change,
+reading samples by typed attribute (`sample.uid`, `sample.rawValue.float64Value`)
+rather than string member paths (`sample['uid']`).
+
+**Context.** DD-052 scoped itself to scada-web; the sim was left on the
+original DD-002 approach, hand-building nine `DynamicType`s across ~240 lines
+and justifying it in its own docstring by citing DD-002 — a decision DD-052
+had already superseded. After DD-052, the repo ran two different Python type
+strategies against one IDL, which is exactly the kind of drift this log exists
+to prevent.
+
+**Alternatives.** Leave the sim on DynamicData. This was seriously considered —
+see Consequences below — because the sim's independent, hand-built type
+definition was the only mechanism that could catch a codegen/IDL mistake as a
+test failure rather than a field incident: two independently-written
+implementations of one wire contract, checked against each other on every
+pipeline run. Rejected because a hand-maintained duplicate is itself a drift
+risk (the sim's docstring already citing a superseded decision is evidence of
+that), and because the correct guard for whether the committed codegen output
+matches the IDL is a test that regenerates and compares — not a second
+hand-written implementation that itself needs to be kept in sync by hand. That
+guard is CR-006; its status is tracked there, not here.
+
+**Consequences.**
+- One wire-type definition, shared by every Python component (sim,
+  scada-web, tests) — the same convergence DD-052 made for scada-web now
+  applies repo-wide on the Python side.
+- **The independent cross-check is gone as of this decision.** Until
+  CR-006's drift guard exists and is verified to actually catch drift, a
+  mismatch between `PlcValue.idl` and the committed `dds/gen/PlcValue.py`
+  has no automated detector anywhere in the repo. This is a real, currently
+  open gap, not a hypothetical one — see the note in CR-006 about a literal
+  byte-diff guard proving non-viable in this environment.
+- `sim/plc_types.py` and its hand-copied domain-id constants are deleted,
+  closing three CR-019 dead-code-adjacent items for free.
+
+**Revisit if.** CR-006's drift guard turns out not to be buildable in a form
+that reliably catches real schema drift (as opposed to codegen-tool-version
+cosmetic noise). In that case, reinstating an independent implementation for
+at least one type is back on the table — but only after that guard is tried
+and shown insufficient, not as a precaution.

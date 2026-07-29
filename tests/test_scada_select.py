@@ -11,13 +11,9 @@ These tests use the sim as the field-domain data source and a Python
 DDS subscriber on domain 16 as the verification point.
 """
 
-import sys
 import time
-from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sim"))
 
 pytestmark = pytest.mark.pipeline
 
@@ -30,27 +26,26 @@ def presentation_subscriber():
     except ImportError:
         pytest.skip("rti.connextdds not available")
 
-    from plc_types import build_plc_types
+    from dds.gen.PlcValue import PLC
 
-    types = build_plc_types()
     participant = dds.DomainParticipant(16)
 
-    selected_value_topic = dds.DynamicData.Topic(
-        participant, "PLC::SelectedValueTopic", types.id_value
+    selected_value_topic = dds.Topic(
+        participant, "PLC::SelectedValueTopic", PLC.IdValue
     )
-    selected_meta_topic = dds.DynamicData.Topic(
-        participant, "PLC::SelectedMetaDataTopic", types.metadata
+    selected_meta_topic = dds.Topic(
+        participant, "PLC::SelectedMetaDataTopic", PLC.MetaData
     )
 
     # MetaData: TRANSIENT_LOCAL for late-join
     meta_qos = dds.DataReaderQos()
     meta_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
     meta_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-    meta_reader = dds.DynamicData.DataReader(
+    meta_reader = dds.DataReader(
         participant.implicit_subscriber, selected_meta_topic, meta_qos
     )
 
-    value_reader = dds.DynamicData.DataReader(
+    value_reader = dds.DataReader(
         participant.implicit_subscriber, selected_value_topic
     )
 
@@ -58,7 +53,6 @@ def presentation_subscriber():
         "participant": participant,
         "meta_reader": meta_reader,
         "value_reader": value_reader,
-        "types": types,
     }
 
     participant.close()
@@ -87,7 +81,7 @@ class TestSelectorForwarding:
         time.sleep(2.0)
         samples = reader.read()
         valid = [s for s in samples if s.info.valid]
-        uids = {s.data["uid"] for s in valid}
+        uids = {s.data.uid for s in valid}
         # Should have metadata for the tags the sim publishes (1-500)
         assert len(uids) > 50, f"Expected many metadata uids, got {len(uids)}"
 
@@ -113,7 +107,7 @@ class TestSelectorForwarding:
         time.sleep(5.0)
         samples = reader.take()
         valid = [s for s in samples if s.info.valid]
-        default_range_samples = [s for s in valid if 100 <= s.data["uid"] <= 500]
+        default_range_samples = [s for s in valid if 100 <= s.data.uid <= 500]
         assert len(default_range_samples) > 0, \
             "No samples from default pre-enabled range (100-500)"
         # The default range should account for most traffic
@@ -132,15 +126,16 @@ class TestSelectorValueRequest:
         except ImportError:
             pytest.skip("rti.connextdds not available")
 
-        types = presentation_subscriber["types"]
+        from dds.gen.PlcValue import PLC
+
         participant = presentation_subscriber["participant"]
 
         # The selector already owns this topic on domain 16 — find it via
         # discovery rather than trying to create a duplicate.
-        request_topic = dds.DynamicData.Topic(
-            participant, "PLC::ValueRequestTopic", types.value_request
+        request_topic = dds.Topic(
+            participant, "PLC::ValueRequestTopic", PLC.ValueRequest
         )
-        writer = dds.DynamicData.DataWriter(
+        writer = dds.DataWriter(
             participant.implicit_publisher, request_topic
         )
         time.sleep(1.0)  # Allow discovery
@@ -150,13 +145,10 @@ class TestSelectorValueRequest:
                                      presentation_subscriber,
                                      request_writer):
         """Sending ADD for uid 50 (outside default range) should start forwarding."""
-        import rti.connextdds as dds
+        from dds.gen.PlcValue import PLC
 
-        types = presentation_subscriber["types"]
         # uid 50 is below the pre-enabled range (100-500)
-        sample = dds.DynamicData(types.value_request)
-        sample["addRequest.uid"] = 50
-        sample["addRequest.name"] = ""
+        sample = PLC.ValueRequest(addRequest=PLC.AddRequest_t(uid=50, name=""))
         request_writer.write(sample)
 
         # Wait for samples on the presentation domain
@@ -164,19 +156,17 @@ class TestSelectorValueRequest:
         time.sleep(5.0)
         samples = reader.take()
         valid = [s for s in samples if s.info.valid]
-        uids = {s.data["uid"] for s in valid}
+        uids = {s.data.uid for s in valid}
         assert 50 in uids, f"uid 50 not found after ADD request (got: {uids})"
 
     def test_min_separation_limits_rate(self, selector_process,
                                        presentation_subscriber,
                                        request_writer):
         """PERIOD command should rate-limit forwarded samples."""
-        import rti.connextdds as dds
+        from dds.gen.PlcValue import PLC
 
-        types = presentation_subscriber["types"]
         # Set a large separation (2000ms) for uid 110 (2 Hz source = 500ms)
-        sample = dds.DynamicData(types.value_request)
-        sample["periodRequest.period_ms"] = 2000
+        sample = PLC.ValueRequest(periodRequest=PLC.PeriodRequest_t(period_ms=2000))
         request_writer.write(sample)
 
         # Collect samples for uid 110 over 6 seconds
@@ -185,7 +175,7 @@ class TestSelectorValueRequest:
         reader.take()  # flush old samples
         time.sleep(6.0)
         samples = reader.take()
-        valid = [s for s in samples if s.info.valid and s.data["uid"] == 110]
+        valid = [s for s in samples if s.info.valid and s.data.uid == 110]
         # At 2000ms separation, 6s window should yield ~3 samples (not 12)
         assert len(valid) <= 5, (
             f"Expected <=5 samples with 2s separation, got {len(valid)}"

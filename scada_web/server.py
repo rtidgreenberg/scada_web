@@ -27,10 +27,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from dds.gen.PlcValue import PLC
+
 from .config import ScadaWebConfig
 from .gateway import DdsGateway
 from .interest import InterestManager
-from .gen.PlcValue import PLC
 from .views import TagValue, TagMeta
 
 logger = logging.getLogger(__name__)

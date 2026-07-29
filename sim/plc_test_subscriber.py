@@ -20,12 +20,14 @@ import sys
 import time
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(REPO_ROOT))
 
 import rti.connextdds as dds
 
 from field_simulation import build_tags
-from plc_types import build_plc_types, get_value_t
+from dds.gen.PlcValue import PLC
 
 ID_VALUE_TOPIC = "PLC::IdValueTopic"
 QOS_PROFILES_XML = str(Path(__file__).resolve().parent.parent / "dds" / "qos" / "profiles.xml")
@@ -42,13 +44,12 @@ def _id_value_reader_qos() -> dds.DataReaderQos:
 
 def run(domain_id: int) -> None:
     tag_names = {tag.uid: tag.name for tag in build_tags()}
-    types = build_plc_types()
 
     participant = dds.DomainParticipant(domain_id)
     subscriber = dds.Subscriber(participant)
 
-    id_value_topic = dds.DynamicData.Topic(participant, ID_VALUE_TOPIC, types.id_value)
-    id_value_reader = dds.DynamicData.DataReader(
+    id_value_topic = dds.Topic(participant, ID_VALUE_TOPIC, PLC.IdValue)
+    id_value_reader = dds.DataReader(
         subscriber, id_value_topic, _id_value_reader_qos()
     )
 
@@ -70,18 +71,18 @@ def run(domain_id: int) -> None:
 
                 sample_count += 1
 
-                uid = sample["uid"]
+                uid = sample.uid
                 now = time.monotonic()
                 if now - last_printed.get(uid, float("-inf")) < RATE_LIMIT_S:
                     continue
                 last_printed[uid] = now
 
-                _, raw = get_value_t(sample, "rawValue")
-                _, smoothed = get_value_t(sample, "smoothedValue")
+                raw = sample.rawValue.float64Value
+                smoothed = sample.smoothedValue.float64Value
                 name = tag_names.get(uid, "?")
                 print(
                     f"  uid={uid:<4} {name:<20} raw={raw:.2f} smoothed={smoothed:.2f} "
-                    f"valueTime={sample['valueTime']}"
+                    f"valueTime={sample.valueTime}"
                 )
 
             now = time.monotonic()

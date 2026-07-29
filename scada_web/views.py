@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .gen.PlcValue import PLC
+from dds.gen.PlcValue import PLC
 
 
 def _value_t_to_scalar(v: PLC.Value_t) -> Any:

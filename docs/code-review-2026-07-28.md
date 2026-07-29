@@ -73,7 +73,7 @@ Remaining open work is `MEDIUM` and `LOW`.
 | [CR-004](#cr-004) | A separation change with nothing subscribed never reaches the wire | MEDIUM | scada_web | **RESOLVED** `2dbaecf` |
 | [CR-005](#cr-005) | The view layer's rename is a no-op on emitted JSON | MEDIUM | scada_web | OPEN |
 | [CR-006](#cr-006) | Python `gen/` regenerates manually while C++ regenerates automatically | MEDIUM | build | OPEN |
-| [CR-007](#cr-007) | The sim still hand-builds DynamicTypes, citing a superseded decision | MEDIUM | sim | OPEN |
+| [CR-007](#cr-007) | The sim still hand-builds DynamicTypes, citing a superseded decision | MEDIUM | sim | **RESOLVED** `pending` |
 | [CR-008](#cr-008) | "period" and "minimum separation" name one concept in five places | MEDIUM | cross-cutting | OPEN |
 | [CR-009](#cr-009) | Selector log style diverges from the Python components | LOW | scada_select | OPEN |
 | [CR-010](#cr-010) | The same `DataState` is constructed and justified twice | LOW | scada_select | OPEN |
@@ -440,6 +440,31 @@ churn for protection against the thing least likely to move.
 
 - **Severity:** MEDIUM · **Area:** build
 - **Relates to:** [DD-043](design-decisions.md#dd-043), [DD-052](design-decisions.md#dd-052)
+- **Status:** **OPEN, with a correction to the recommendation below.** The
+  ordering constraint held: [CR-007](#cr-007)'s convergence has now landed
+  ([DD-054](design-decisions.md#dd-054)), which removed the sim's independent
+  `DynamicData` implementation — the one thing that was catching codegen/IDL
+  drift as a test failure. This finding's guard is now the *only* remaining
+  mechanism that could catch that class of bug, which raises its priority.
+  **The rev 2 correction's literal byte-diff test is not viable as written**:
+  regenerating `PlcValue.py` from the current `PlcValue.idl` with the exact
+  rtiddsgen binary that produced the committed file (`rtiddsgen` 4.3.1, from
+  the Connext 7.3.1 install on this machine) still produces a non-empty diff —
+  six `idl.xtypes_compliance(0x0000068C)` annotations present in a fresh run
+  and absent from the committed file — with **no IDL change and the identical
+  tool version**. Regenerating with the tool version this machine's `rti`
+  Python package actually binds to (Connext 7.6.0, rtiddsgen 4.6.0) or the
+  newest installed (7.7.0, rtiddsgen 4.7.0) adds further, larger cosmetic
+  diffs (trailing-comma and blank-line formatting, an added `rti.rpc` import).
+  A `==` on file text will fail on tool-version noise long before it ever
+  catches real drift, which is worse than no guard: a test that is red on a
+  clean checkout gets silenced, not fixed. The guard needs to compare
+  *structure* (member names, types, IDL-level annotations that affect wire
+  compatibility) rather than source bytes — e.g. import both the committed
+  module and a freshly generated one and compare `dataclasses.fields()` per
+  type, or use `rti.idl`'s type-support/member introspection directly. Still
+  open; the recommendation below (make it a pytest test, not just CI) stands,
+  the literal snippet does not.
 
 **Finding.** [CMakeLists.txt:38-43](../scada_select/CMakeLists.txt#L38-L43) runs
 `connextdds_rtiddsgen_run` against `dds/idl/PlcValue.idl` on every C++ build,
@@ -493,6 +518,21 @@ there.
 
 - **Severity:** MEDIUM · **Area:** [`sim/plc_types.py`](../sim/plc_types.py)
 - **Relates to:** [DD-002](design-decisions.md#dd-002) (SUPERSEDED), [DD-052](design-decisions.md#dd-052)
+- **Status:** **RESOLVED**, out of sequence relative to the rev 2 correction
+  below. `sim/plc_publisher.py` and `sim/plc_test_subscriber.py` now import
+  `PLC` from `dds/gen/PlcValue.py`; `sim/plc_types.py` and its `_build_*`
+  functions, `set_value_t`/`get_value_t`, and hand-copied constants are
+  deleted; `tests/test_sim.py` and `tests/test_scada_select.py` build readers
+  from the generated types too. Recorded as
+  [DD-054](design-decisions.md#dd-054), not an edit to DD-002, per the
+  correction's own instruction. **The correction's ordering constraint was not
+  followed** — [CR-006](#cr-006)'s drift guard does not exist yet, so the
+  cross-check the correction describes is gone with nothing in place of it.
+  DD-054 records this explicitly as an open consequence rather than papering
+  over it, and investigating what a working guard would look like (documented
+  under [CR-006](#cr-006)) found the literal snippet proposed there does not
+  work in this environment — a reason to prioritize CR-006 now, not a reason
+  this finding is still open.
 
 **Finding.** [`plc_types.py`](../sim/plc_types.py) builds all nine types through
 `DynamicType` builders across 242 lines, and its docstring
@@ -1667,6 +1707,7 @@ Work done against this review, newest last. Branch
 | `9f0cf64` | [CR-037](#cr-037) symptom | Band observation window derived from `publish_period_s`. Applies [CR-031](#cr-031)'s pattern, but not at CR-031's sites. |
 | `2dbaecf` | [CR-019](#cr-019), [CR-020](#cr-020), [CR-025](#cr-025) RESOLVED; [CR-011](#cr-011) (closes [CR-004](#cr-004)) RESOLVED; [CR-021](#cr-021), [CR-013](#cr-013), [CR-026](#cr-026) RESOLVED; [CR-029](#cr-029) (+[CR-036](#cr-036)), [CR-030](#cr-030), [CR-031](#cr-031) RESOLVED | Dead-code sweep across `config.py`/`gateway.py`/sim/tests; `InterestManager` refactored to `on_add`/`on_delete`/`on_period` callbacks (drops `_last_period_ms`); payload hoisted and exact-type dispatch in `server.py`; catch-all 404 route added; `TestE2ETopicType` deleted, assert-silencing `except` clauses narrowed, guarded assertions converted to hard asserts. |
 | `1a9ea5d` | [CR-003](#cr-003) RESOLVED | Wired SR-003: `DdsGateway` attaches a `DataWriterListener` to every writer and exposes `on_publication_matched`; `server.py`'s new `_on_publication_matched` replays PERIOD + `reconcile()`'s ADD burst on the `ValueRequest` writer's 0→N match transition; `tests/test_reconcile.py` added. |
+| `pending` | [CR-007](#cr-007) RESOLVED (recorded as [DD-054](design-decisions.md#dd-054)) | `sim/plc_publisher.py` / `sim/plc_test_subscriber.py` / `tests/test_scada_select.py` / `tests/test_sim.py` converted from hand-built `DynamicData` types to the same `dds/gen/PlcValue.py` generated types scada-web uses (relocated from `scada_web/gen/` to `dds/gen/` the same day so every component, including the C++ selector's own generated types, shares one `dds/` root); `sim/plc_types.py` deleted. Landed out of the sequence's prescribed order — [CR-006](#cr-006)'s drift guard was not built first, so [CR-006](#cr-006)'s `Status` line records the now-unreplaced cross-check as an explicit open risk, and the literal byte-diff guard the rev 2 correction proposed there was found not to work in this environment (see that finding for the evidence). |
 
 Deliberately **not** touched, despite being adjacent to the above: the
 `basicConfig` duplication ([CR-002](#cr-002)) and the `.bat` script duplication
@@ -1746,8 +1787,15 @@ below as strikethrough where it differed.
    for, then delete the UI's unreachable union probe.
 8. **[CR-008](#cr-008)** (C++ accessors first) then **[CR-016](#cr-016)** — settle
    the vocabulary, then collapse the alias surface.
-9. **[CR-006](#cr-006)** then **[CR-007](#cr-007)** — drift guard as a pytest test,
-   *then* the sim convergence it makes safe. Record CR-007 as a new DD.
+9. ~~**[CR-006](#cr-006)** then **[CR-007](#cr-007)** — drift guard as a pytest test,
+   *then* the sim convergence it makes safe. Record CR-007 as a new DD.~~
+   **[CR-007](#cr-007) DONE** `pending` (recorded as
+   [DD-054](design-decisions.md#dd-054)); **[CR-006](#cr-006) still OPEN** — done
+   out of the prescribed order. The drift guard did not land first, so the
+   cross-check CR-007 gave up is currently unreplaced. See both findings'
+   `Status` lines for what a working guard needs to look like — the literal
+   byte-diff test this step originally pointed at does not work in this
+   environment.
 10. **[CR-014](#cr-014)**, [CR-015](#cr-015) — script consolidation; delete
     `conftest._find_and_set_license` rather than sharing it.
 11. **[CR-032](#cr-032)** — test isolation (after step 2). Module-scoped selector
@@ -1877,3 +1925,29 @@ imports and that the type definitions are structurally consistent with the IDL.
 Running it now would leak three processes per session
 ([CR-001](#cr-001)); that finding should be fixed first, then the suite run as
 the real acceptance check for the migration.
+
+### rev 5 verification pass
+
+Verifies the [CR-007](#cr-007) commit (sim/tests converted to generated types,
+[DD-054](design-decisions.md#dd-054)).
+
+- **`pyflakes scada_web/ sim/ tests/`** (excluding `gen/`) — clean.
+- **`pytest tests/test_scada_web.py -v`** in isolation after a clean
+  `pkill -f 'plc_publisher.py|scada_selector|scada_web'` and confirming
+  `ss -ltnp` showed 8080/8765 free — 10 passed in 15 s.
+- **`pytest tests/` after the same clean-slate `pkill`** — 61 passed in 105 s,
+  exit 0. Same total as rev 4's `1a9ea5d` run — the sim/test conversion added
+  no tests and dropped none.
+- **Zero leaked processes, ports 8080/8765 free** after the run.
+- **False-failure caught and ruled out.** An earlier run of the full suite in
+  this same session, without first clearing processes left over from manual
+  testing done earlier in the session, produced 4 failures — all in
+  `TestWebSocket` (timeouts waiting for samples, one missing-uid assertion).
+  `logs/scada_web.log` showed the ADD/PERIOD requests reaching the interest
+  manager and selector correctly, so the request path was not the problem.
+  Re-running `tests/test_scada_web.py` alone after `pkill`-ing the leftover
+  sim/selector/scada_web processes passed cleanly, and the full suite then
+  passed too — confirming the failures were port/domain contention from
+  orphaned processes, not a defect introduced by the type-construction
+  migration in `_value_t`/`_write_metadata`/`_write_id_value`. Recorded in
+  memory so this isn't re-diagnosed from scratch next time.

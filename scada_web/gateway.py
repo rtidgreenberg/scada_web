@@ -24,8 +24,9 @@ from typing import Any, Callable
 import rti.connextdds as dds
 import rti.asyncio  # provides the WaitSet-backed asyncio dispatcher
 
+from dds.gen.PlcValue import PLC
+
 from .config import ScadaWebConfig, TopicConfig, WriterConfig
-from .gen.PlcValue import PLC
 
 logger = logging.getLogger(__name__)
 

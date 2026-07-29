@@ -1,7 +1,7 @@
 # scada_web configuration
 #
 # Declares DDS participants and topic subscriptions for the presentation domain.
-# Types are Python generated classes (DD-052), loaded via scada_web/gen/.
+# Types are Python generated classes (DD-052), loaded via dds/gen/.
 
 # --- QoS profiles ---
 # Shared profiles grouped by DDS domain: field and presentation.

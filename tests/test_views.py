@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scada_web.gen.PlcValue import PLC
+from dds.gen.PlcValue import PLC
 from scada_web.views import _value_t_to_scalar, _limits_to_dict
 
 
