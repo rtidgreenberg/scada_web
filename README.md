@@ -2,4 +2,4 @@
 
 ## DDS Topic Topology
 
-![DDS Topic Topology](docs/dds-topology.drawio.svg)
+[View DDS Topic Topology](docs/dds-topology.drawio.svg)
