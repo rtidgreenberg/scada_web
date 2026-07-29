@@ -17,6 +17,19 @@ is in the [Resolution log](#resolution-log); per-finding detail is on the
 `**Status:**` line of each affected finding. **The pipeline suite has now been
 run** — see [Verification performed](#verification-performed), which supersedes
 rev 1's and rev 2's "not performed" caveat.
+
+**Revision:** rev 4 — steps 3–6 of the sequence implemented on `main` (two
+commits, `2dbaecf` and `1a9ea5d`). Thirteen more findings RESOLVED:
+[CR-003](#cr-003), [CR-004](#cr-004), [CR-011](#cr-011), [CR-013](#cr-013),
+[CR-019](#cr-019), [CR-020](#cr-020), [CR-021](#cr-021), [CR-025](#cr-025),
+[CR-026](#cr-026), [CR-029](#cr-029), [CR-030](#cr-030), [CR-031](#cr-031),
+[CR-036](#cr-036). No findings added. The `HIGH` count drops to zero — CR-003
+was the last open `HIGH` item. Commit-to-finding mapping appended to the
+[Resolution log](#resolution-log); per-finding detail on each affected
+finding's `**Status:**` line, as in rev 3. **Full suite re-run after each
+commit** — see [Verification performed](#verification-performed) for both runs
+(56 passed, then 61 passed after CR-003 added its own regression test), zero
+leaked processes on teardown either time.
 **Reviewed at commit:** `015e653` (feat: migrate scada_web to Python generated types)
 **Scope:** Full first-party tree — `scada_web/`, `sim/`, `scada_select/src/`, `UI/`,
 `scripts/`, `tests/`, `dds/`, `docs/`. Excludes `references/` (submodule) and
@@ -48,44 +61,48 @@ the four `HIGH` items are silent — they produce no error and no log line, whic
 is why they've survived. The fourth ([CR-034](#cr-034)) is the opposite failure
 mode: it converts a reportable error into an indefinite hang.
 
+**rev 4 update:** all four `HIGH` items are now RESOLVED
+([CR-001](#cr-001), [CR-002](#cr-002), [CR-003](#cr-003), [CR-034](#cr-034)).
+Remaining open work is `MEDIUM` and `LOW`.
+
 | ID | Finding | Severity | Area | Status |
 |---|---|---|---|---|
 | [CR-001](#cr-001) | `exec cmd \| tee` defeats signal delivery; start scripts leak processes | HIGH | scripts, tests | **RESOLVED** `ea25bed` |
 | [CR-002](#cr-002) | Two writers on each Python log file; rotation silently stops working | HIGH | logging | **RESOLVED** `e2dcd14` |
-| [CR-003](#cr-003) | SR-003 reconciliation is implemented but never called | HIGH | scada_web | **PARTIAL** `e2dcd14` |
-| [CR-004](#cr-004) | A separation change with nothing subscribed never reaches the wire | MEDIUM | scada_web | OPEN |
+| [CR-003](#cr-003) | SR-003 reconciliation is implemented but never called | HIGH | scada_web | **RESOLVED** `1a9ea5d` |
+| [CR-004](#cr-004) | A separation change with nothing subscribed never reaches the wire | MEDIUM | scada_web | **RESOLVED** `2dbaecf` |
 | [CR-005](#cr-005) | The view layer's rename is a no-op on emitted JSON | MEDIUM | scada_web | OPEN |
 | [CR-006](#cr-006) | Python `gen/` regenerates manually while C++ regenerates automatically | MEDIUM | build | OPEN |
 | [CR-007](#cr-007) | The sim still hand-builds DynamicTypes, citing a superseded decision | MEDIUM | sim | OPEN |
 | [CR-008](#cr-008) | "period" and "minimum separation" name one concept in five places | MEDIUM | cross-cutting | OPEN |
 | [CR-009](#cr-009) | Selector log style diverges from the Python components | LOW | scada_select | OPEN |
 | [CR-010](#cr-010) | The same `DataState` is constructed and justified twice | LOW | scada_select | OPEN |
-| [CR-011](#cr-011) | Separation changes fan out through the per-uid ADD callback | MEDIUM | scada_web | OPEN |
+| [CR-011](#cr-011) | Separation changes fan out through the per-uid ADD callback | MEDIUM | scada_web | **RESOLVED** `2dbaecf` |
 | [CR-012](#cr-012) | `_TYPE_MAP` hand-maintains what the generated module already binds | LOW | scada_web | OPEN |
-| [CR-013](#cr-013) | `_sample_to_view_dict` dispatches by `isinstance` with a silent fallback | LOW | scada_web | OPEN |
+| [CR-013](#cr-013) | `_sample_to_view_dict` dispatches by `isinstance` with a silent fallback | LOW | scada_web | **RESOLVED** `2dbaecf` |
 | [CR-014](#cr-014) | Three start scripts duplicate ~75 lines each, and have drifted | MEDIUM | scripts | OPEN |
 | [CR-015](#cr-015) | `serve-ui.ps1` exists twice, byte-identical | LOW | scripts | OPEN |
 | [CR-016](#cr-016) | The WebSocket protocol accepts four aliases for one field | MEDIUM | scada_web, UI | OPEN |
 | [CR-017](#cr-017) | `create_app()` mutates a module-level singleton | MEDIUM | scada_web | OPEN |
 | [CR-018](#cr-018) | `@app.on_event` is deprecated in the pinned FastAPI range | LOW | scada_web | OPEN |
-| [CR-019](#cr-019) | Dead code inventory (13 items) | MEDIUM | cross-cutting | OPEN |
-| [CR-020](#cr-020) | `types_xml` plumbing outlived the XML type library | LOW | scada_web | OPEN |
-| [CR-021](#cr-021) | Sample payload is serialized once per interested client | LOW | scada_web | OPEN |
+| [CR-019](#cr-019) | Dead code inventory (13 items) | MEDIUM | cross-cutting | **RESOLVED** `2dbaecf` |
+| [CR-020](#cr-020) | `types_xml` plumbing outlived the XML type library | LOW | scada_web | **RESOLVED** `2dbaecf` |
+| [CR-021](#cr-021) | Sample payload is serialized once per interested client | LOW | scada_web | **RESOLVED** `2dbaecf` |
 | [CR-022](#cr-022) | The UI rebuilds all 500 rows on every pushed sample | MEDIUM | UI | OPEN |
 | [CR-023](#cr-023) | `unionScalar` re-derives a wire contract the server no longer emits | LOW | UI | OPEN |
 | [CR-024](#cr-024) | Runtime dataclasses lost their type annotations to `Any` | LOW | scada_web | OPEN |
-| [CR-025](#cr-025) | The `KIND_STRING` decode path is unverified and unexercised | LOW | scada_web | OPEN |
-| [CR-026](#cr-026) | `InterestManager` validates separation with a duplicated block | LOW | scada_web | OPEN |
+| [CR-025](#cr-025) | The `KIND_STRING` decode path is unverified and unexercised | LOW | scada_web | **RESOLVED** `2dbaecf` |
+| [CR-026](#cr-026) | `InterestManager` validates separation with a duplicated block | LOW | scada_web | **RESOLVED** `2dbaecf` |
 | [CR-027](#cr-027) | `scada-web-architecture.md` still lists work that is now done | LOW | docs | OPEN |
 | [CR-028](#cr-028) | OQ-38 describes an XML dependency that no longer exists | LOW | docs | **PARTIAL** `b78e934` |
-| [CR-029](#cr-029) | Two tests skip forever against a deleted endpoint | MEDIUM | tests | OPEN |
-| [CR-030](#cr-030) | `except (TimeoutError, Exception)` turns protocol errors into passes | LOW | tests | OPEN |
-| [CR-031](#cr-031) | Assertions guarded into non-existence | MEDIUM | tests | OPEN |
+| [CR-029](#cr-029) | Two tests skip forever against a deleted endpoint | MEDIUM | tests | **RESOLVED** `2dbaecf` |
+| [CR-030](#cr-030) | `except (TimeoutError, Exception)` turns protocol errors into passes | LOW | tests | **RESOLVED** `2dbaecf` |
+| [CR-031](#cr-031) | Assertions guarded into non-existence | MEDIUM | tests | **RESOLVED** `2dbaecf` |
 | [CR-032](#cr-032) | Session-scoped fixtures leak state between test modules | MEDIUM | tests | OPEN |
 | [CR-033](#cr-033) | Four different `sys.path` insertions across the suite | LOW | tests | OPEN |
 | [CR-034](#cr-034) | `proc.stdout.read()` on a live process hangs the fixture instead of reporting | HIGH | tests | **RESOLVED** `ea25bed` |
 | [CR-035](#cr-035) | Captured stdout is never drained; a full pipe buffer stalls the component | MEDIUM | tests | **RESOLVED** `ea25bed` |
-| [CR-036](#cr-036) | The static mount swallows unmatched `/api/v1` routes into an opaque 404 | LOW | scada_web | OPEN |
+| [CR-036](#cr-036) | The static mount swallows unmatched `/api/v1` routes into an opaque 404 | LOW | scada_web | **RESOLVED** `2dbaecf` |
 | [CR-037](#cr-037) | Every tag in a rate band shares a due time, so bands publish in bursts | LOW | sim | OPEN |
 | [CR-R01](#cr-r01) | Docs described DD-052; code implemented the superseded DD-045 | — | scada_web | RESOLVED |
 | [CR-R02](#cr-r02) | `/api/v1/topics/{name}/type` could never succeed | — | scada_web | RESOLVED |
@@ -235,14 +252,20 @@ Two details while in there:
 **SR-003 reconciliation is implemented but never called.**
 
 - **Severity:** HIGH · **Area:** [`scada_web/interest.py`](../scada_web/interest.py)
-- **Status:** **PARTIAL** — `e2dcd14` took the fallback, not the fix. The module
-  docstring no longer claims SR-003 is implemented: it states plainly that
-  `reconcile()` has no caller, names the symptom, and records both obstacles from
-  the correction below (the VOLATILE trigger and the suppressed `PERIOD`).
-  `reconcile()`'s own docstring says it is scaffolding. **No behaviour changed —
-  SR-003 remains unimplemented and a selector restart still yields a permanently
-  blank display.** The gap is now visible rather than contradicted; wiring it is
-  still open and still sequenced after [CR-011](#cr-011).
+- **Status:** **RESOLVED** by `1a9ea5d`. Wired exactly as the rev 2 correction
+  below specifies: `gateway.py` attaches a `DataWriterListener` to every writer
+  and exposes `on_publication_matched(topic_name, status)`; `server.py`'s new
+  `_on_publication_matched` checks `current_count_change == current_count` (the
+  0→N transition) on the `ValueRequest` writer specifically, then sends PERIOD
+  before replaying `reconcile()`'s ADDs — the exact ordering the correction's
+  snippet showed. The `_last_period_ms` global the snippet still referenced was
+  already gone by this point (removed in [CR-011](#cr-011)'s `2dbaecf`), so the
+  applied fix has one fewer line than the snippet: no reset needed, since
+  `_send_period` no longer suppresses on unchanged values in a way that matters
+  here. `tests/test_reconcile.py` (new) asserts the transition check directly
+  against a fake gateway — no DDS pipeline needed — and the full suite (61
+  tests) passed against the live selector, confirming the listener attaches
+  without disrupting normal startup matching.
 
 **Finding.** [interest.py:3-7](../scada_web/interest.py#L3-L7) states that
 SR-001 through SR-004 are implemented. SR-001, SR-002 and SR-004 are.
@@ -311,6 +334,10 @@ docstring is what lets the next reader find the gap.
 **A separation change with nothing subscribed never reaches the wire.**
 
 - **Severity:** MEDIUM · **Area:** [`scada_web/`](../scada_web/), [`UI/`](../UI/)
+- **Status:** **RESOLVED** by `2dbaecf`, for free as this finding's own
+  recommendation predicted. [CR-011](#cr-011)'s dedicated `on_period` callback
+  fires unconditionally on every actual change, regardless of active-uid count.
+  `tests/test_interest.py` covers the empty-refcount case as a regression test.
 
 **Finding.** The `PERIOD` command is only ever written from inside
 `_on_interest_add` ([server.py:276-283](../scada_web/server.py#L276-L283)), and
@@ -607,6 +634,12 @@ statement of the rule.
 **Separation changes fan out through the per-uid ADD callback.**
 
 - **Severity:** MEDIUM · **Area:** [`scada_web/interest.py`](../scada_web/interest.py), [`scada_web/server.py`](../scada_web/server.py)
+- **Status:** **RESOLVED** by `2dbaecf`, per the rev 2 correction's shape:
+  `AddCallback`/`DeleteCallback`/`PeriodCallback` all take a single argument,
+  `set_min_separation` fires `on_period` once directly, and `_last_period_ms`
+  is deleted. This is the keystone commit the rest of rev 4 built on --
+  [CR-004](#cr-004) closed as a side effect, and [CR-003](#cr-003) became
+  wireable in `1a9ea5d`.
 
 **Finding.** [interest.py:86-88](../scada_web/interest.py#L86-L88) implements
 "change the global separation" by re-firing `on_add(uid, period)` for every
@@ -725,6 +758,11 @@ names.
 **`_sample_to_view_dict` dispatches by `isinstance` with a silent fallback.**
 
 - **Severity:** LOW · **Area:** [`scada_web/server.py`](../scada_web/server.py)
+- **Status:** **RESOLVED** by `2dbaecf`, exactly per the rev 2 correction: a
+  `_VIEW_DISPATCH: dict[type, Any]` keyed on `type(data)` (not `isinstance`),
+  with a comment noting generated IDL types are not subclassed so exact-type
+  dispatch loses no coverage. The old fallback's `KeyError` is now raised
+  instead of returning `{"raw": str(data)}`.
 
 **Finding.** [server.py:299-306](../scada_web/server.py#L299-L306) is an
 `isinstance` chain ending in `return {"raw": str(data)}` — so a topic whose type
@@ -897,6 +935,12 @@ this first means editing the same line twice.
 **Dead code inventory.**
 
 - **Severity:** MEDIUM (in aggregate) · **Area:** cross-cutting
+- **Status:** **RESOLVED** by `2dbaecf`. All items deleted except the two
+  exceptions this finding itself named: `topic_by_name` (kept, per
+  [CR-R02](#cr-r02)) and the `interest.py` accessors
+  (`active_periods`/`client_count`/`active_uid_count`/`reconcile`) --
+  `reconcile` in particular now has a caller as of [CR-003](#cr-003)'s
+  `1a9ea5d`. `pyflakes` clean across `scada_web/`, `sim/`, `tests/` afterward.
 
 **Finding.** Confirmed unreferenced across the tree (`grep` over all
 first-party sources; `pyflakes` for imports):
@@ -957,6 +1001,8 @@ the source of types — is in this same file and should ride along.
 **`types_xml` plumbing outlived the XML type library.**
 
 - **Severity:** LOW · **Area:** [`scada_web/config.py`](../scada_web/config.py)
+- **Status:** **RESOLVED** by `2dbaecf`. Field, parser, and docstring paragraph
+  removed together, folded into the [CR-019](#cr-019) sweep as recommended.
 
 **Finding.** Commit `015e653` removed the `types_xml` validation, but the field
 ([config.py:83](../scada_web/config.py#L83)) and the parser for a `types:`
@@ -976,6 +1022,10 @@ Fold into the [CR-019](#cr-019) sweep.
 **Sample payload is serialized once per interested client.**
 
 - **Severity:** LOW · **Area:** [`scada_web/server.py`](../scada_web/server.py)
+- **Status:** **RESOLVED** by `2dbaecf`, per the rev 2 correction: the
+  interested-client list is computed first (SR-004 demux stays inside the
+  loop), then the payload is built once and reused, with an early return when
+  no client is interested rather than an unconditional hoist.
 
 **Finding.** [server.py:246-253](../scada_web/server.py#L246-L253) builds the
 payload *inside* the per-client loop, so `_sample_to_view_dict()` and
@@ -1092,6 +1142,10 @@ precondition.
 **The `KIND_STRING` decode path is unverified and unexercised.**
 
 - **Severity:** LOW · **Area:** [`scada_web/views.py`](../scada_web/views.py)
+- **Status:** **RESOLVED** by `2dbaecf`. New `tests/test_views.py` constructs
+  `PLC.Value_t(stringValue=list("hi"))` directly and confirms `rti.idl` yields
+  one-character `str` (not integers) plus a NUL-padding-strip case -- no DDS
+  pipeline or license needed, as the rev 2 correction predicted.
 
 **Finding.** [views.py:29-31](../scada_web/views.py#L29-L31) does
 `"".join(chars)` on `v.stringValue`. Whether `rti.idl` yields a sequence of
@@ -1122,6 +1176,12 @@ string-valued tag in the catalogue is what discovers it. Do this in the
 **`InterestManager` validates separation with a duplicated block.**
 
 - **Severity:** LOW · **Area:** [`scada_web/interest.py`](../scada_web/interest.py)
+- **Status:** **RESOLVED** by `2dbaecf`. `interest.py`'s two blocks collapsed
+  into `_require_positive_separation()`, kept as the canonical statement of the
+  rule; `config.py`, `server.py`, and `config.yaml` each still validate at
+  their own layer per the rev 2 correction, but their comments now
+  cross-reference `interest.py` instead of restating the ValueRequest
+  contract.
 
 **Finding.** [interest.py:51-55](../scada_web/interest.py#L51-L55) and
 [interest.py:76-80](../scada_web/interest.py#L76-L80) are the same four-line
@@ -1207,6 +1267,11 @@ CR-R03 happened.
 **Two tests skip forever against a deleted endpoint.**
 
 - **Severity:** MEDIUM · **Area:** [`tests/test_e2e.py`](../tests/test_e2e.py)
+- **Status:** **RESOLVED** by `2dbaecf`. `TestE2ETopicType` deleted outright
+  (both tests and its `_topic_url` helper), and its now-orphaned
+  `urllib.parse` import removed with it. [CR-036](#cr-036) landed in the same
+  commit, closing the mechanism this finding names as a live defect in its own
+  right.
 
 **Finding.** `TestE2ETopicType`
 ([test_e2e.py:234-267](../tests/test_e2e.py#L234-L267)) targets
@@ -1236,6 +1301,11 @@ produces the same indistinguishable 404.
 **`except (TimeoutError, Exception)` turns protocol errors into passes.**
 
 - **Severity:** LOW · **Area:** [`tests/`](../tests/)
+- **Status:** **RESOLVED** by `2dbaecf`, verbatim per the rev 2 correction: both
+  sites (`test_e2e.py`'s `test_subscribe_receive_unsubscribe_cycle` and
+  `test_scada_web.py`'s `test_unsubscribe_stops_samples`) now catch
+  `TimeoutError` alone and `pytest.fail` on `websockets.ConnectionClosed`. Both
+  files gained a module-level `import websockets` for the exception class.
 
 **Finding.** [test_scada_web.py:184](../tests/test_scada_web.py#L184) and
 [test_e2e.py:150](../tests/test_e2e.py#L150). The second clause subsumes the
@@ -1267,13 +1337,16 @@ message does not say what happened.
 **Assertions guarded into non-existence.**
 
 - **Severity:** MEDIUM · **Area:** [`tests/test_e2e.py`](../tests/test_e2e.py)
-- **Status:** **OPEN.** Both cited sites are unchanged —
-  [test_e2e.py:88-89](../tests/test_e2e.py#L88-L89) still skips on empty samples and
-  [:228-231](../tests/test_e2e.py#L228-L231) still guards its only assertion. The
-  *pattern* recommended here was applied elsewhere, in `9f0cf64`, while fixing
-  [CR-037](#cr-037)'s symptom in `test_sim.py`: assert the precondition, then the
-  property, and name what was actually observed. That is precedent, not a fix for
-  this finding.
+- **Status:** **RESOLVED** by `2dbaecf`. Both cited sites fixed per the rev 2
+  correction's generalized rule: `test_value_freshness`'s
+  `pytest.skip("No value samples available yet")` became
+  `assert samples, "no value samples available — pipeline not delivering"`,
+  and `test_dynamic_period_change`'s `if fast_samples and slow_samples:` guard
+  became the exact three-line unconditional assert sequence the finding
+  recommended. The `pytest.skip` grep across `tests/` this correction asked for
+  found only three survivors, all in `test_scada_select.py`/`test_sim.py`
+  guarding on `rti.connextdds not available` — a legitimate missing-dependency
+  skip, not absent data.
 
 **Finding.**
 [test_e2e.py:228-231](../tests/test_e2e.py#L228-L231) wraps its only assertion
@@ -1482,6 +1555,11 @@ a session-scoped fixture.
 **The static mount swallows unmatched `/api/v1` routes into an opaque 404.**
 
 - **Severity:** LOW · **Area:** [`scada_web/server.py`](../scada_web/server.py)
+- **Status:** **RESOLVED** by `2dbaecf`. A catch-all
+  `@app.get("/api/v1/{rest:path}")` declared after every specific route returns
+  `{"error": "no such endpoint '/api/v1/{rest}'"}` at 404, distinct from
+  `get_topic_samples`'s `{"error": "unknown topic 'x'"}`. Landed in the same
+  commit as [CR-029](#cr-029), which this finding's mechanism had been hiding.
 
 **Finding.** `StaticFiles` is mounted at `/`
 ([server.py:75-76](../scada_web/server.py#L75-L76)) with a comment noting it is
@@ -1587,12 +1665,12 @@ Work done against this review, newest last. Branch
 | `baffe5b` | — | `start-web.sh` / `start-web.bat` install `requirements.txt`. Not from this review. |
 | `b78e934` | [CR-028](#cr-028) PARTIAL | Deleted `dds/idl/PlcValue.xml`. OQ-38 itself not amended. |
 | `9f0cf64` | [CR-037](#cr-037) symptom | Band observation window derived from `publish_period_s`. Applies [CR-031](#cr-031)'s pattern, but not at CR-031's sites. |
+| `2dbaecf` | [CR-019](#cr-019), [CR-020](#cr-020), [CR-025](#cr-025) RESOLVED; [CR-011](#cr-011) (closes [CR-004](#cr-004)) RESOLVED; [CR-021](#cr-021), [CR-013](#cr-013), [CR-026](#cr-026) RESOLVED; [CR-029](#cr-029) (+[CR-036](#cr-036)), [CR-030](#cr-030), [CR-031](#cr-031) RESOLVED | Dead-code sweep across `config.py`/`gateway.py`/sim/tests; `InterestManager` refactored to `on_add`/`on_delete`/`on_period` callbacks (drops `_last_period_ms`); payload hoisted and exact-type dispatch in `server.py`; catch-all 404 route added; `TestE2ETopicType` deleted, assert-silencing `except` clauses narrowed, guarded assertions converted to hard asserts. |
+| `1a9ea5d` | [CR-003](#cr-003) RESOLVED | Wired SR-003: `DdsGateway` attaches a `DataWriterListener` to every writer and exposes `on_publication_matched`; `server.py`'s new `_on_publication_matched` replays PERIOD + `reconcile()`'s ADD burst on the `ValueRequest` writer's 0→N match transition; `tests/test_reconcile.py` added. |
 
 Deliberately **not** touched, despite being adjacent to the above: the
-`basicConfig` duplication ([CR-002](#cr-002)), the `.bat` script duplication
-([CR-014](#cr-014)), the unused `import asyncio` in `conftest.py`
-([CR-019](#cr-019)), and both [CR-030](#cr-030) sites — all still open, all in
-files these commits edited.
+`basicConfig` duplication ([CR-002](#cr-002)) and the `.bat` script duplication
+([CR-014](#cr-014)) — both still open, both in files these commits edited.
 
 ---
 
@@ -1645,19 +1723,25 @@ below as strikethrough where it differed.
    leaks, the fixture hang, and the undrained pipe.~~ **DONE** `ea25bed`. The
    premise held: the suite is now runnable and everything below is verifiable
    against it. The acceptance run that followed found [CR-037](#cr-037).
-3. **[CR-019](#cr-019)**, [CR-020](#cr-020), + [CR-025](#cr-025)'s two-line test —
+3. ~~**[CR-019](#cr-019)**, [CR-020](#cr-020), + [CR-025](#cr-025)'s two-line test —
    dead-code sweep. Mechanical, and it shrinks the surface for every item below.
-   Delete `websocket_path` / `rest_prefix` from the dataclass *and* the YAML.
-4. **[CR-029](#cr-029)** (+ [CR-036](#cr-036)), [CR-030](#cr-030),
+   Delete `websocket_path` / `rest_prefix` from the dataclass *and* the YAML.~~
+   **DONE** `2dbaecf`.
+4. ~~**[CR-029](#cr-029)** (+ [CR-036](#cr-036)), [CR-030](#cr-030),
    [CR-031](#cr-031) — tests that report green while asserting nothing, and the
-   opaque 404 that let one of them hide.
-5. **[CR-011](#cr-011)** (closes [CR-004](#cr-004)) + [CR-021](#cr-021),
-   [CR-013](#cr-013), [CR-026](#cr-026) — ~~was 8~~ one pass over `interest.py` /
+   opaque 404 that let one of them hide.~~ **DONE** `2dbaecf`.
+5. ~~**[CR-011](#cr-011)** (closes [CR-004](#cr-004)) + [CR-021](#cr-021),
+   [CR-013](#cr-013), [CR-026](#cr-026) — one pass over `interest.py` /
    `server.py`. The keystone item: it deletes `_last_period_ms`, which is what makes
-   the next step correct.
-6. **[CR-003](#cr-003)** — wire SR-003 or downgrade the claim. ~~was 5~~ Now roughly
+   the next step correct.~~ **DONE** `2dbaecf`. (Rev 1 had this at step 8.)
+6. ~~**[CR-003](#cr-003)** — wire SR-003 or downgrade the claim. Now roughly
    a dozen lines, and actually restores the separation, because step 5 removed the
-   global that suppressed the `PERIOD` replay.
+   global that suppressed the `PERIOD` replay.~~ **DONE** `1a9ea5d`. (Rev 1 had
+   this at step 5.) Took the
+   wire-it path, not the fallback: a `DataWriterListener` on the `ValueRequest`
+   writer triggers `_send_period` + `reconcile()`'s ADD burst on the
+   0→N match-count transition. New `tests/test_reconcile.py` covers the
+   transition logic without needing a live selector restart.
 7. **[CR-005](#cr-005)** then **[CR-023](#cr-023)** — decide what the view layer is
    for, then delete the UI's unreachable union probe.
 8. **[CR-008](#cr-008)** (C++ accessors first) then **[CR-016](#cr-016)** — settle
@@ -1756,6 +1840,36 @@ only with `-p no:randomly` (fixed order) — the ordering dependence
 runs, and `test_scada_select.py`'s ">50% of traffic" heuristic still passed only
 under that fixed order. Nothing here exercises a selector restart, so
 [CR-003](#cr-003)'s SR-003 gap remains untested as well as unimplemented.
+
+### rev 4 verification pass
+
+Two commits landed the remainder of the [Suggested sequence](#suggested-sequence)
+(steps 3–6), each re-verified against the live pipeline before moving to the next.
+
+- **`pyflakes scada_web/ sim/ tests/`** (excluding `gen/`) — clean after `2dbaecf`'s
+  dead-code sweep. This supersedes the rev 1 `pyflakes` result, which had flagged
+  the [CR-019](#cr-019) items now deleted.
+- **Fast unit subset** —
+  `pytest tests/test_reconcile.py tests/test_interest.py tests/test_views.py -v` —
+  28 passed, run without starting the pipeline (no DDS entities needed for these).
+- **`pytest tests/` after `2dbaecf`** — 56 passed, exit 0, ~83–86 s. Confirms
+  [CR-011](#cr-011)'s `InterestManager` refactor, [CR-013](#cr-013)'s exact-type
+  dispatch, [CR-021](#cr-021)'s payload hoist, [CR-025](#cr-025)'s
+  `KIND_STRING` decode test, [CR-029](#cr-029)/[CR-030](#cr-030)/[CR-031](#cr-031)'s
+  test fixes, and [CR-036](#cr-036)'s catch-all route all pass together against a
+  live selector — nothing here was verified only in isolation.
+- **`pytest tests/` after `1a9ea5d`** — 61 passed, exit 0, ~93 s (`test_reconcile.py`
+  adds 5 tests to the 56 above). **This closes [CR-003](#cr-003)'s previously-open
+  gap:** the run exercises the `ValueRequest` writer's normal startup match, which
+  is the same code path SR-003 reconciliation now hooks — it did not disrupt
+  ordinary matching.
+- **Zero leaked processes, ports 8080/8765 free** after both runs (`ps aux` +
+  `ss -ltnp`), the same acceptance criterion rev 3 established.
+- **Not performed in rev 4 either.** No selector-restart-mid-session test was added
+  — [CR-003](#cr-003)'s fix is verified by unit test and by not regressing normal
+  startup matching, not by an end-to-end restart scenario. `test_scada_select.py`'s
+  fixed-run-order dependence ([CR-032](#cr-032)) is still neither confirmed nor
+  cleared.
 
 **Not performed.** The full pipeline suite was not run, so the typed read path
 in `015e653` is **not** verified end-to-end against live DDS — only that it
