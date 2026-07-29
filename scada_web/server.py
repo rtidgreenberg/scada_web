@@ -59,6 +59,7 @@ def create_app(config: ScadaWebConfig) -> FastAPI:
         min_separation_ms=config.selection.default_min_separation_ms,
     )
     _gateway.on_sample = _on_dds_sample
+    _gateway.on_publication_matched = _on_publication_matched
 
     app.add_middleware(
         CORSMiddleware,
@@ -324,6 +325,30 @@ def _on_interest_delete(uid: int) -> None:
         _gateway.write(VALUE_REQUEST_TOPIC, req)
     except Exception:
         logger.exception("value_request_delete_failed uid=%d", uid)
+
+
+def _on_publication_matched(topic_name: str, status: Any) -> None:
+    """SR-003: ValueRequest writer (re)matched -- replay the full interest set.
+
+    `presentation::value_request` is RELIABLE + VOLATILE (dds/qos/profiles.xml),
+    so a ValueRequest written before the selector's ControlPlane reader is
+    matched is discarded, not queued. current_count rising from 0 -- checked
+    via current_count_change == current_count, i.e. the previous count was
+    zero -- is the first moment a write to this topic can land, whether that's
+    initial startup or a selector restart. PERIOD is sent before the ADD burst
+    so no tag is briefly at the wrong rate (CR-003, closes CR-011's deferral).
+    """
+    if topic_name != VALUE_REQUEST_TOPIC or _interest is None:
+        return
+    if status.current_count_change <= 0:
+        return
+    if status.current_count != status.current_count_change:
+        return  # not a 0→N transition -- writer was already matched
+    logger.info("selector_reconcile_triggered topic=%s current_count=%d",
+                topic_name, status.current_count)
+    _send_period(_interest.min_separation_ms)
+    for uid in _interest.reconcile():
+        _send_add(uid)
 
 
 # Exact-type dispatch, not isinstance: generated IDL types are not subclassed,

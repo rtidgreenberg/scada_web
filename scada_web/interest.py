@@ -1,18 +1,15 @@
 """Per-client uid interest refcounting and global selector separation.
 
-Implements SR-001, SR-002 and SR-004 from system-architecture.md §5:
+Implements SR-001 through SR-004 from system-architecture.md §5:
   SR-001: refcount uid interest; ADD on 0→1, DELETE on 1→0
   SR-002: abrupt disconnect decrements that client's full interest set
+  SR-003: reconcile the full interest set after a selector restart —
+    `reconcile()` below computes the replay set; server.py's
+    `_on_publication_matched` calls it when the ValueRequest writer's match
+    count rises from 0 (on_publication_matched, since that topic is VOLATILE
+    and an earlier write would be discarded), sending PERIOD before the ADD
+    burst so no tag is briefly at the wrong rate
   SR-004: per-client demux — don't forward samples to uninterested clients
-
-SR-003 (reconcile the full interest set after a selector restart) is NOT
-implemented. `reconcile()` below computes the replay set but has no caller:
-nothing detects a selector restart. Its symptom is a permanently blank display
-(system-architecture.md §5, SR-003). Two things are needed and neither exists
-yet — a trigger (on_publication_matched on the ValueRequest writer, since that
-topic is VOLATILE and an earlier write would be discarded), and a PERIOD replay
-that server.py's _last_period_ms currently suppresses. Treat reconcile() as
-scaffolding until both land.
 
 
 The InterestManager is the single source of truth for "which uids are
@@ -146,10 +143,11 @@ class InterestManager:
         return {uid: self._min_separation_ms for uid in self.active_uids()}
 
     def reconcile(self) -> dict[int, int]:
-        """SR-003 scaffolding: active uids and periods for a selector restart.
+        """SR-003: active uids and periods, for replay after a selector restart.
 
-        No caller — see the module docstring. Wiring this up is not sufficient on
-        its own to satisfy SR-003.
+        Called from server.py's `_on_publication_matched` when the
+        ValueRequest writer's match count rises from 0. The caller sends a
+        PERIOD command before replaying these as ADDs.
         """
         periods = dict(sorted(self.active_periods().items()))
         logger.info("interest_reconcile uids=%d", len(periods))

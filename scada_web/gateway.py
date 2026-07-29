@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 # Callback type: (topic_name, sample_data, sample_info) → None
 SampleCallback = Callable[[str, Any, Any], None]
 
+# Callback type: (topic_name, dds.PublicationMatchedStatus) → None
+PublicationMatchedCallback = Callable[[str, Any], None]
+
 # Map from IDL qualified type name → Python generated class
 _TYPE_MAP: dict[str, type] = {
     "PLC::MetaData": PLC.MetaData,
@@ -54,6 +57,27 @@ class WriterRuntime:
     config: WriterConfig
     topic: Any = None
     writer: Any = None
+    # Kept alive here — the DDS binding does not hold its own reference, and a
+    # garbage-collected listener silently stops firing.
+    listener: Any = None
+
+
+class _PublicationMatchedListener(dds.DataWriterListener):
+    """Forwards on_publication_matched to the gateway's public callback.
+
+    One instance per writer, closed over its own topic name so the gateway
+    callback (server.py's SR-003 trigger, CR-003) doesn't need to inspect the
+    writer to know which topic matched.
+    """
+
+    def __init__(self, gateway: "DdsGateway", topic_name: str):
+        super().__init__()
+        self._gateway = gateway
+        self._topic_name = topic_name
+
+    def on_publication_matched(self, writer: Any, status: Any) -> None:
+        if self._gateway.on_publication_matched:
+            self._gateway.on_publication_matched(self._topic_name, status)
 
 
 class DdsGateway:
@@ -75,8 +99,13 @@ class DdsGateway:
         self._writers: dict[str, WriterRuntime] = {}
         self._reader_tasks: list[asyncio.Task] = []
 
-        # Public callback — set before start()
+        # Public callbacks — set before start()
         self.on_sample: SampleCallback | None = None
+        # Fires on every writer's match-count change (SR-003 trigger, CR-003).
+        # server.py filters by topic_name; a bare current_count_change > 0 with
+        # current_count == current_count_change means the count just rose from
+        # zero — the first moment a VOLATILE write to that topic can land.
+        self.on_publication_matched: PublicationMatchedCallback | None = None
 
     # ─── Lifecycle ───────────────────────────────────────────────────────
 
@@ -167,9 +196,11 @@ class DdsGateway:
             writer_qos = self._qos_provider.datawriter_qos_from_profile(
                 wc.qos_profile)
 
-            writer = dds.DataWriter(publisher, dds_topic, writer_qos)
+            listener = _PublicationMatchedListener(self, wc.name)
+            writer = dds.DataWriter(publisher, dds_topic, writer_qos,
+                                     listener, dds.StatusMask.PUBLICATION_MATCHED)
             self._writers[wc.name] = WriterRuntime(
-                config=wc, topic=dds_topic, writer=writer)
+                config=wc, topic=dds_topic, writer=writer, listener=listener)
             logger.info("writer_created topic=%s type=%s profile=%s",
                         wc.name, type_cls.__name__, wc.qos_profile)
 
