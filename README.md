@@ -35,7 +35,7 @@ Field Simulator (Domain 15)
 
 ## DDS Topic Topology
 
-[View DDS Topic Topology](docs/dds-topology.drawio.svg)
+![DDS Topic Topology](docs/dds-topology.drawio.svg)
 
 ## Running
 
