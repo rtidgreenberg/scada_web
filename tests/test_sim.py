@@ -9,7 +9,6 @@ independently of the downstream pipeline. Verifies:
   - IdValue samples flow at the expected rates per uid band
 """
 
-import math
 import sys
 import time
 from pathlib import Path
@@ -20,8 +19,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sim"))
 
 from field_simulation import (
-    Limits,
-    Tag,
     build_tags,
     publish_period_s,
     TAG_COUNT,

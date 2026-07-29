@@ -12,10 +12,8 @@ qos_profiles: dds/qos/profiles.xml
 # also has this value in its own YAML; browser/UI changes override it at runtime
 # by sending period_ms/min_separation_ms.
 #
-# Must be > 0. On the ValueRequest contract (dds/idl/PlcValue.idl) a PERIOD
-# command with period_ms == 0 tells the selector to restore ITS configured
-# default -- it does not request the full field rate, and the web side cannot
-# request that at all.
+# Must be > 0 -- see scada_web/interest.py's _require_positive_separation for
+# why PERIOD 0 must never be sent from here.
 selection:
   default_min_separation_ms: 250
 
@@ -71,5 +69,3 @@ writers:
 server:
   host: "0.0.0.0"
   port: 8080
-  websocket_path: /ws
-  rest_prefix: /api/v1

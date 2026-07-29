@@ -9,13 +9,13 @@ that scada_web correctly:
   - Honors unsubscribe and disconnects cleanly
 """
 
-import asyncio
 import json
 import time
 import urllib.request
 import urllib.error
 
 import pytest
+import websockets
 
 # Mark all tests in this module as requiring the full pipeline
 pytestmark = pytest.mark.pipeline
@@ -181,8 +181,10 @@ class TestWebSocket:
                     if msg.get("uid") == 160:
                         got_after_unsub = True
                         break
-            except (TimeoutError, Exception):
-                pass
+            except TimeoutError:
+                pass                      # silence, as intended
+            except websockets.ConnectionClosed as exc:
+                pytest.fail(f"connection closed during assert-silence window: {exc}")
             assert not got_after_unsub, "Received sample for uid 160 after unsubscribe"
 
     def test_set_period_accepted(self, ws_connect):

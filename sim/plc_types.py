@@ -25,10 +25,6 @@ MAX_STRING_VALUE_LENGTH = 32
 MAX_HOSTNAME_LENGTH = 32
 MAX_NAME_LENGTH = 32
 
-# Domain IDs — mirrors dds/idl/PlcValue.idl constants.
-FIELD_DOMAIN_ID = 15
-PRESENTATION_DOMAIN_ID = 16
-
 
 def _build_value_kind_t() -> dds.EnumType:
     return dds.EnumType(

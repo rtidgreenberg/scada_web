@@ -93,7 +93,7 @@ field mapping.
 
 ### 3.2 YAML Configuration
 
-DDS topology (participants, topics, filters) is declared in a YAML file.
+DDS topology (participants, topics) is declared in a YAML file.
 The schema is modeled after the act-sim-scope-infra router config:
 
 ```yaml
@@ -108,9 +108,6 @@ topics:
   - name: <TopicName>
     participant: <name>
     type: "PLC::MetaData"      # fully-qualified generated type name
-    filter:                    # optional content filter
-      expression: "uid = %0"
-      parameters: ["5"]
 ```
 
 `selection.default_min_separation_ms` initializes the web UI/runtime subscribe
@@ -248,7 +245,6 @@ Map of participant name → settings.
 | Key | Type | Required | Description |
 |---|---|---|---|
 | `domain` | int | yes | DDS domain ID |
-| `qos_xml` | string | no | Path to QoS provider XML |
 
 ### 6.2 `topics`
 
@@ -260,8 +256,6 @@ List of topic subscriptions.
 | `participant` | string | yes | References a participant name |
 | `type` | string | yes | Fully-qualified generated type name |
 | `qos_profile` | string | no | QoS profile name |
-| `filter.expression` | string | no | Content filter SQL expression |
-| `filter.parameters` | list | no | Filter parameter values |
 
 ### 6.3 Views (code, not config)
 
@@ -274,8 +268,9 @@ in `views.py` — see §3.5 and [DD-053](../../docs/design-decisions.md#dd-053).
 |---|---|---|---|
 | `host` | string | `0.0.0.0` | Bind address |
 | `port` | int | `8080` | Listen port |
-| `websocket_path` | string | `/ws` | WebSocket endpoint |
-| `rest_prefix` | string | `/api/v1` | REST base path |
+
+The WebSocket endpoint (`/ws`) and REST base path (`/api/v1`) are fixed in
+`server.py`, not configurable.
 
 ---
 

@@ -45,7 +45,6 @@ _gateway: DdsGateway | None = None
 _interest: InterestManager | None = None
 _config: ScadaWebConfig | None = None
 _ws_clients: dict[str, WebSocket] = {}
-_last_period_ms: int | None = None
 
 
 def create_app(config: ScadaWebConfig) -> FastAPI:
@@ -54,8 +53,9 @@ def create_app(config: ScadaWebConfig) -> FastAPI:
     _config = config
     _gateway = DdsGateway(config)
     _interest = InterestManager(
-        on_add=_on_interest_add,
+        on_add=_send_add,
         on_delete=_on_interest_delete,
+        on_period=_send_period,
         min_separation_ms=config.selection.default_min_separation_ms,
     )
     _gateway.on_sample = _on_dds_sample
@@ -67,7 +67,9 @@ def create_app(config: ScadaWebConfig) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Serve the browser UI. Mounted last so it cannot shadow the API routes.
+    # Serve the browser UI. Mounted last so it cannot shadow declared routes
+    # (the /api/v1/{rest:path} catch-all above ensures unmatched API paths
+    # never reach this mount either — see CR-036).
     document_root = config.document_root
     if document_root:
         root = Path(document_root)
@@ -148,6 +150,21 @@ async def get_all_topic_samples(topic_name: str):
     return {"topic": topic_name, "samples": payload}
 
 
+@app.get("/api/v1/{rest:path}")
+async def unknown_api_route(rest: str):
+    """Catch-all for unmatched /api/v1/* paths.
+
+    Declared after every real route above, so a real route always matches
+    first. Without this, an unmatched API path falls through to the static
+    mount (below) and returns StaticFiles' own 404 — indistinguishable from a
+    deliberate "unknown topic" 404 (CR-036). This is what let two tests read
+    "endpoint does not exist" as "not wired yet" for two commits after the
+    endpoint they targeted was actually removed (CR-029, CR-R02).
+    """
+    return JSONResponse({"error": f"no such endpoint '/api/v1/{rest}'"},
+                        status_code=404)
+
+
 # ─── WebSocket ───────────────────────────────────────────────────────────────
 
 
@@ -215,12 +232,8 @@ def _parse_global_min_separation(msg: dict[str, Any]) -> int | None:
         if len(item_periods) > 1:
             raise ValueError("minimum separation is global; values must agree")
         period_ms = item_periods.pop()
-    # Must be > 0, not >= 0. On the ValueRequest contract, PERIOD with
-    # period_ms == 0 means "restore the selector's configured default" -- it is
-    # not a request for the full field rate, and the UI has no way to ask for
-    # that (dds/idl/PlcValue.idl, scada-select-architecture.md §3.3). Rejecting
-    # 0 here keeps a browser from sending a command whose effect would not be
-    # what the sender meant.
+    # Must be > 0, not >= 0 — see interest.py's _require_positive_separation
+    # for why PERIOD 0 must never reach the selector from here.
     if period_ms <= 0:
         raise ValueError("period_ms/min_separation_ms must be > 0")
     return period_ms
@@ -241,16 +254,24 @@ def _on_dds_sample(topic_name: str, data: Any, info: Any) -> None:
         uid = data.uid
     except Exception:
         return
+    if _interest is None:
+        return
 
     # SR-004: per-client demux
-    for client_id, ws in list(_ws_clients.items()):
-        if _interest and _interest.is_interested(client_id, uid):
-            payload = json.dumps({
-                "topic": topic_name,
-                "uid": int(uid),
-                "data": _sample_to_view_dict(data),
-            })
-            asyncio.create_task(_ws_send(client_id, ws, payload))
+    interested = [(client_id, ws) for client_id, ws in list(_ws_clients.items())
+                  if _interest.is_interested(client_id, uid)]
+    if not interested:
+        return
+
+    # Built once and reused for every interested client, rather than once per
+    # client — the payload is identical for all of them.
+    payload = json.dumps({
+        "topic": topic_name,
+        "uid": int(uid),
+        "data": _sample_to_view_dict(data),
+    })
+    for client_id, ws in interested:
+        asyncio.create_task(_ws_send(client_id, ws, payload))
 
 
 async def _ws_send(client_id: str, ws: WebSocket, payload: str) -> None:
@@ -261,10 +282,9 @@ async def _ws_send(client_id: str, ws: WebSocket, payload: str) -> None:
         pass
 
 
-def _on_interest_add(uid: int, period_ms: int) -> None:
+def _send_add(uid: int) -> None:
     """Interest 0→1: send selector ADD command via ValueRequest union."""
-    global _last_period_ms
-    logger.info("selector_add uid=%d period_ms=%d", uid, period_ms)
+    logger.info("selector_add uid=%d", uid)
     if _gateway is None:
         return
     try:
@@ -273,14 +293,24 @@ def _on_interest_add(uid: int, period_ms: int) -> None:
         _gateway.write(VALUE_REQUEST_TOPIC, req)
     except Exception:
         logger.exception("value_request_add_failed uid=%d", uid)
-    if period_ms != _last_period_ms:
-        _last_period_ms = period_ms
-        try:
-            req = PLC.ValueRequest()
-            req.periodRequest = PLC.PeriodRequest_t(period_ms=period_ms)
-            _gateway.write(VALUE_REQUEST_TOPIC, req)
-        except Exception:
-            logger.exception("value_request_period_failed period_ms=%d", period_ms)
+
+
+def _send_period(min_separation_ms: int) -> None:
+    """Global minimum separation changed: send selector PERIOD command.
+
+    Fires once per actual change, regardless of how many uids are active —
+    unlike the per-uid ADD fan-out this replaced, a change with nothing
+    subscribed still reaches the wire (closes CR-004).
+    """
+    logger.info("selector_period min_separation_ms=%d", min_separation_ms)
+    if _gateway is None:
+        return
+    try:
+        req = PLC.ValueRequest()
+        req.periodRequest = PLC.PeriodRequest_t(period_ms=min_separation_ms)
+        _gateway.write(VALUE_REQUEST_TOPIC, req)
+    except Exception:
+        logger.exception("value_request_period_failed period_ms=%d", min_separation_ms)
 
 
 def _on_interest_delete(uid: int) -> None:
@@ -296,11 +326,19 @@ def _on_interest_delete(uid: int) -> None:
         logger.exception("value_request_delete_failed uid=%d", uid)
 
 
+# Exact-type dispatch, not isinstance: generated IDL types are not subclassed,
+# so this loses no coverage and lets an unhandled sample type raise instead of
+# silently shipping a stringified repr to the browser (CR-013).
+_VIEW_DISPATCH: dict[type, Any] = {
+    PLC.IdValue: lambda data: TagValue.from_idvalue(data).to_dict(),
+    PLC.MetaData: lambda data: TagMeta.from_metadata(data).to_dict(),
+}
+
+
 def _sample_to_view_dict(data: Any) -> dict[str, Any]:
     """Convert a typed DDS sample to a browser-friendly dict via views."""
-    if isinstance(data, PLC.IdValue):
-        return TagValue.from_idvalue(data).to_dict()
-    elif isinstance(data, PLC.MetaData):
-        return TagMeta.from_metadata(data).to_dict()
-    # Fallback for unknown types
-    return {"raw": str(data)}
+    try:
+        convert = _VIEW_DISPATCH[type(data)]
+    except KeyError:
+        raise KeyError(f"no view mapping for sample type {type(data).__name__!r}")
+    return convert(data)

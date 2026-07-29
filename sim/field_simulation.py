@@ -46,7 +46,6 @@ class Tag:
     limits: Limits
     # value_fn(t_seconds) -> raw process value in engineering units.
     value_fn: Callable[[float], float]
-    noise_stddev: float = 0.0
 
     def raw_value(self, t: float) -> float:
         return self.value_fn(t)

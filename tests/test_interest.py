@@ -18,13 +18,13 @@ class TestInterestRefcounting:
 
     def test_first_subscribe_fires_add(self):
         adds = []
-        mgr = InterestManager(on_add=lambda uid, ms: adds.append((uid, ms)))
+        mgr = InterestManager(on_add=lambda uid: adds.append(uid))
         mgr.client_subscribe("c1", 10)
-        assert adds == [(10, 250)]
+        assert adds == [10]
 
     def test_second_subscribe_no_add(self):
         adds = []
-        mgr = InterestManager(on_add=lambda uid, ms: adds.append((uid, ms)))
+        mgr = InterestManager(on_add=lambda uid: adds.append(uid))
         mgr.client_subscribe("c1", 10)
         mgr.client_subscribe("c2", 10)
         assert len(adds) == 1  # only the first triggers ADD
@@ -46,7 +46,7 @@ class TestInterestRefcounting:
 
     def test_duplicate_subscribe_idempotent(self):
         adds = []
-        mgr = InterestManager(on_add=lambda uid, ms: adds.append((uid, ms)))
+        mgr = InterestManager(on_add=lambda uid: adds.append(uid))
         mgr.client_subscribe("c1", 10)
         mgr.client_subscribe("c1", 10)  # same client, same uid
         assert len(adds) == 1
@@ -74,28 +74,43 @@ class TestInterestDisconnect:
 
 
 class TestInterestPeriod:
-    """Minimum separation updates re-fire ADD for active uids."""
+    """Minimum separation updates fire a dedicated PERIOD callback once,
+    regardless of how many uids (if any) are active (CR-011, closes CR-004).
+    """
 
-    def test_set_min_separation_refires_adds(self):
-        adds = []
-        mgr = InterestManager(on_add=lambda uid, ms: adds.append((uid, ms)))
+    def test_set_min_separation_fires_period_once(self):
+        periods = []
+        mgr = InterestManager(on_period=lambda ms: periods.append(ms))
         mgr.client_subscribe("c1", 10)
         mgr.client_subscribe("c1", 20)
+        mgr.set_min_separation(500)
+        assert periods == [500]  # one PERIOD, not one per active uid
+
+    def test_set_min_separation_fires_with_no_active_uids(self):
+        # CR-004: a separation change with nothing subscribed must still
+        # reach the wire.
+        periods = []
+        mgr = InterestManager(on_period=lambda ms: periods.append(ms))
+        mgr.set_min_separation(500)
+        assert periods == [500]
+
+    def test_set_min_separation_does_not_refire_add(self):
+        adds = []
+        mgr = InterestManager(on_add=lambda uid: adds.append(uid))
+        mgr.client_subscribe("c1", 10)
         adds.clear()
         mgr.set_min_separation(500)
-        # Should re-fire ADD for both active uids with new period
-        assert set(adds) == {(10, 500), (20, 500)}
+        assert adds == []  # ADD is not how PERIOD changes propagate anymore
 
     def test_set_same_period_noop(self):
-        adds = []
+        periods = []
         mgr = InterestManager(
-            on_add=lambda uid, ms: adds.append((uid, ms)),
+            on_period=lambda ms: periods.append(ms),
             min_separation_ms=250,
         )
         mgr.client_subscribe("c1", 10)
-        adds.clear()
         mgr.set_min_separation(250)  # same as current
-        assert adds == []
+        assert periods == []
 
     def test_negative_period_raises(self):
         mgr = InterestManager()

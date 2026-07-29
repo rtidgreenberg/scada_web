@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 import rti.connextdds as dds
@@ -74,7 +74,6 @@ class DdsGateway:
         self._topics: dict[str, TopicRuntime] = {}
         self._writers: dict[str, WriterRuntime] = {}
         self._reader_tasks: list[asyncio.Task] = []
-        self._running = False
 
         # Public callback — set before start()
         self.on_sample: SampleCallback | None = None
@@ -87,7 +86,6 @@ class DdsGateway:
         self._create_participants()
         self._create_readers()
         self._create_writers()
-        self._running = True
         for topic_name, runtime in self._topics.items():
             task = asyncio.create_task(self._reader_loop(topic_name, runtime))
             self._reader_tasks.append(task)
@@ -97,7 +95,6 @@ class DdsGateway:
 
     async def stop(self) -> None:
         """Tear down all DDS entities."""
-        self._running = False
         for task in self._reader_tasks:
             task.cancel()
         await asyncio.gather(*self._reader_tasks, return_exceptions=True)
@@ -218,11 +215,6 @@ class DdsGateway:
         return [(data, info)
                 for data, info in reader.select().state(dds.DataState.any).read()
                 if info.valid]
-
-    @property
-    def writers(self) -> list[str]:
-        """All configured writer topic names."""
-        return list(self._writers.keys())
 
     def write(self, topic_name: str, sample: Any) -> None:
         """Write a typed sample to the named topic."""

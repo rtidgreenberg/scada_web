@@ -11,7 +11,6 @@ all three in dependency order and tears them down after the test.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import signal
 import subprocess

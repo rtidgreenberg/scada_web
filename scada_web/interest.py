@@ -30,8 +30,20 @@ from typing import Callable
 logger = logging.getLogger(__name__)
 
 # Callback types for upstream actions
-AddCallback = Callable[[int, int], None]  # uid, min_separation_ms → send ADD
-DeleteCallback = Callable[[int], None]    # uid → send DELETE to selector
+AddCallback = Callable[[int], None]        # uid → send ADD
+DeleteCallback = Callable[[int], None]     # uid → send DELETE
+PeriodCallback = Callable[[int], None]     # min_separation_ms → send PERIOD
+
+
+def _require_positive_separation(min_separation_ms: int) -> None:
+    # Must be > 0. PERIOD with period_ms == 0 means "restore the selector's own
+    # default" on the ValueRequest contract (dds/idl/PlcValue.idl), so 0 here
+    # would make a command send something other than what it appears to. This
+    # is the canonical statement of the rule — config.py, server.py, and
+    # config.yaml each re-validate it at their own layer but should point here
+    # rather than restate it.
+    if min_separation_ms <= 0:
+        raise ValueError("min_separation_ms must be > 0")
 
 
 @dataclass
@@ -45,9 +57,9 @@ class InterestManager:
     """Manages per-uid refcounts across all connected web clients.
 
     Usage:
-        mgr = InterestManager(on_add=send_add, on_delete=send_delete)
-        mgr.client_subscribe("client_1", uid=5)   # fires ADD(5, current period)
-        mgr.set_min_separation(100)               # fires ADD(5, 100)
+        mgr = InterestManager(on_add=send_add, on_delete=send_delete, on_period=send_period)
+        mgr.client_subscribe("client_1", uid=5)   # fires ADD(5)
+        mgr.set_min_separation(100)               # fires PERIOD(100) once
         mgr.client_unsubscribe("client_1", uid=5) # fires DELETE
     """
 
@@ -55,15 +67,13 @@ class InterestManager:
         self,
         on_add: AddCallback | None = None,
         on_delete: DeleteCallback | None = None,
+        on_period: PeriodCallback | None = None,
         min_separation_ms: int = 250,
     ):
-        if min_separation_ms <= 0:
-            # 0 is not "no rate limit": the selector reads PERIOD 0 as "restore
-            # your configured default" (dds/idl/PlcValue.idl). Web clients
-            # cannot request the full field rate, so 0 never leaves here.
-            raise ValueError("min_separation_ms must be > 0")
+        _require_positive_separation(min_separation_ms)
         self._on_add = on_add
         self._on_delete = on_delete
+        self._on_period = on_period
         self._min_separation_ms = min_separation_ms
         self._refcounts: dict[int, int] = defaultdict(int)  # uid → count
         self._clients: dict[str, ClientInterest] = {}       # client_id → interest
@@ -78,23 +88,18 @@ class InterestManager:
         if self._refcounts[uid] == 1:
             logger.info("interest_add uid=%d client=%s", uid, client_id)
             if self._on_add:
-                self._on_add(uid, self._min_separation_ms)
+                self._on_add(uid)
 
     def set_min_separation(self, min_separation_ms: int) -> None:
-        """Update the global selector minimum separation for all active uids."""
-        if min_separation_ms <= 0:
-            # 0 is not "no rate limit": the selector reads PERIOD 0 as "restore
-            # your configured default" (dds/idl/PlcValue.idl). Web clients
-            # cannot request the full field rate, so 0 never leaves here.
-            raise ValueError("min_separation_ms must be > 0")
+        """Update the global selector minimum separation (fires PERIOD once)."""
+        _require_positive_separation(min_separation_ms)
         if min_separation_ms == self._min_separation_ms:
             return
         self._min_separation_ms = min_separation_ms
         logger.info("interest_min_separation_update period_ms=%d active_uids=%d",
                     min_separation_ms, len(self._refcounts))
-        if self._on_add:
-            for uid in sorted(self._refcounts):
-                self._on_add(uid, min_separation_ms)
+        if self._on_period:
+            self._on_period(min_separation_ms)
 
     def client_unsubscribe(self, client_id: str, uid: int) -> None:
         """Client drops interest in a uid. DELETE on 1→0 transition."""
