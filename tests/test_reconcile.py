@@ -15,6 +15,8 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import scada_web.server as server
+from scada_web.config import ScadaWebConfig
+from scada_web.gateway import DdsGateway
 from scada_web.interest import InterestManager
 
 
@@ -89,3 +91,26 @@ class TestPublicationMatchedTrigger:
         assert period_sample.periodRequest.period_ms == 250
         add_uids = [sample.addRequest.uid for _, sample in self.gateway.calls[1:]]
         assert add_uids == [10, 20]
+
+
+class TestGatewayPublicationMatchDelivery:
+    """The writer must be registered before its match callback can reconcile."""
+
+    def test_defers_match_until_writer_creation_completes(self):
+        gateway = DdsGateway(ScadaWebConfig())
+        received = []
+        gateway.on_publication_matched = lambda topic, status: received.append(
+            (topic, status)
+        )
+        topic_name = server.VALUE_REQUEST_TOPIC
+        status = _matched_status(1, 1)
+
+        gateway._creating_writer_topics.add(topic_name)
+        gateway._handle_publication_matched(topic_name, status)
+
+        assert received == []
+        gateway._creating_writer_topics.remove(topic_name)
+        gateway._writers[topic_name] = object()
+        gateway._flush_publication_matches(topic_name)
+
+        assert received == [(topic_name, status)]

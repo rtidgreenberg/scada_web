@@ -77,8 +77,7 @@ class _PublicationMatchedListener(dds.DataWriterListener):
         self._topic_name = topic_name
 
     def on_publication_matched(self, writer: Any, status: Any) -> None:
-        if self._gateway.on_publication_matched:
-            self._gateway.on_publication_matched(self._topic_name, status)
+        self._gateway._handle_publication_matched(self._topic_name, status)
 
 
 class DdsGateway:
@@ -99,6 +98,8 @@ class DdsGateway:
         self._topics: dict[str, TopicRuntime] = {}
         self._writers: dict[str, WriterRuntime] = {}
         self._reader_tasks: list[asyncio.Task] = []
+        self._creating_writer_topics: set[str] = set()
+        self._pending_publication_matches: dict[str, list[Any]] = {}
 
         # Public callbacks — set before start()
         self.on_sample: SampleCallback | None = None
@@ -198,12 +199,34 @@ class DdsGateway:
                 wc.qos_profile)
 
             listener = _PublicationMatchedListener(self, wc.name)
-            writer = dds.DataWriter(publisher, dds_topic, writer_qos,
-                                     listener, dds.StatusMask.PUBLICATION_MATCHED)
+            self._creating_writer_topics.add(wc.name)
+            try:
+                writer = dds.DataWriter(
+                    publisher, dds_topic, writer_qos, listener,
+                    dds.StatusMask.PUBLICATION_MATCHED)
+            except Exception:
+                self._pending_publication_matches.pop(wc.name, None)
+                raise
+            finally:
+                self._creating_writer_topics.discard(wc.name)
             self._writers[wc.name] = WriterRuntime(
                 config=wc, topic=dds_topic, writer=writer, listener=listener)
+            self._flush_publication_matches(wc.name)
             logger.info("writer_created topic=%s type=%s profile=%s",
                         wc.name, type_cls.__name__, wc.qos_profile)
+
+    def _handle_publication_matched(self, topic_name: str, status: Any) -> None:
+        """Deliver a writer match after its runtime can accept writes."""
+        if topic_name in self._creating_writer_topics:
+            self._pending_publication_matches.setdefault(topic_name, []).append(status)
+            return
+        if self.on_publication_matched:
+            self.on_publication_matched(topic_name, status)
+
+    def _flush_publication_matches(self, topic_name: str) -> None:
+        """Replay any synchronous match callbacks raised during construction."""
+        for status in self._pending_publication_matches.pop(topic_name, []):
+            self._handle_publication_matched(topic_name, status)
 
     # ─── Internal: read loop ─────────────────────────────────────────────
 

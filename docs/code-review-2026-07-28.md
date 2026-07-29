@@ -73,7 +73,7 @@ Remaining open work is `MEDIUM` and `LOW`.
 | [CR-004](#cr-004) | A separation change with nothing subscribed never reaches the wire | MEDIUM | scada_web | **RESOLVED** `2dbaecf` |
 | [CR-005](#cr-005) | The view layer's rename is a no-op on emitted JSON | MEDIUM | scada_web | OPEN |
 | [CR-006](#cr-006) | Python `gen/` regenerates manually while C++ regenerates automatically | MEDIUM | build | OPEN |
-| [CR-007](#cr-007) | The sim still hand-builds DynamicTypes, citing a superseded decision | MEDIUM | sim | **RESOLVED** `pending` |
+| [CR-007](#cr-007) | The sim still hand-builds DynamicTypes, citing a superseded decision | MEDIUM | sim | **RESOLVED** `0667c03` |
 | [CR-008](#cr-008) | "period" and "minimum separation" name one concept in five places | MEDIUM | cross-cutting | OPEN |
 | [CR-009](#cr-009) | Selector log style diverges from the Python components | LOW | scada_select | OPEN |
 | [CR-010](#cr-010) | The same `DataState` is constructed and justified twice | LOW | scada_select | OPEN |
@@ -469,7 +469,7 @@ churn for protection against the thing least likely to move.
 **Finding.** [CMakeLists.txt:38-43](../scada_select/CMakeLists.txt#L38-L43) runs
 `connextdds_rtiddsgen_run` against `dds/idl/PlcValue.idl` on every C++ build,
 explicitly so no hand-copied duplicate can drift.
-[`scada_web/gen/PlcValue.py`](../scada_web/gen/PlcValue.py) is committed with
+[`dds/gen/PlcValue.py`](../dds/gen/PlcValue.py) is committed with
 `DO NOT MODIFY` at the top and has no build-time equivalent.
 
 DD-052 deliberately commits the generated output and records the command, so
@@ -548,7 +548,7 @@ does: the nine `_build_*` functions (~130 lines), `set_value_t`, `get_value_t`,
 `_set_char_array`, and the hand-copied constants
 ([plc_types.py:24-30](../sim/plc_types.py#L24-L30)) — the generated module binds
 `MAX_STRING_VALUE_LENGTH`, `FIELD_DOMAIN_ID` and `PRESENTATION_DOMAIN_ID`
-already ([PlcValue.py:20-38](../scada_web/gen/PlcValue.py#L20-L38)), which also
+already ([PlcValue.py:20-38](../dds/gen/PlcValue.py#L20-L38)), which also
 retires three [CR-019](#cr-019) entries.
 [test_sim.py:109](../tests/test_sim.py#L109) and
 [test_scada_select.py:33](../tests/test_scada_select.py#L33) build readers from
@@ -733,9 +733,9 @@ suppressed `PERIOD` replay.
 `"PLC::MetaData" → PLC.MetaData` by hand, and
 [gateway.py:124](../scada_web/gateway.py#L124) raises *"add it to _TYPE_MAP"*.
 But `PLC` is `idl.get_module("PLC")` and the generated file binds every type
-onto it already ([PlcValue.py:117](../scada_web/gen/PlcValue.py#L117),
-[:135](../scada_web/gen/PlcValue.py#L135),
-[:188](../scada_web/gen/PlcValue.py#L188)).
+onto it already ([PlcValue.py:117](../dds/gen/PlcValue.py#L117),
+[:135](../dds/gen/PlcValue.py#L135),
+[:188](../dds/gen/PlcValue.py#L188)).
 
 **Recommendation.**
 
@@ -756,12 +756,12 @@ verbatim.** The diagnosis is right; the replacement is a regression.
 
 `PLC` is an `idl.get_module("PLC")` namespace, and the generated file binds far
 more than types onto it: integer constants
-([PlcValue.py:22-38](../scada_web/gen/PlcValue.py#L22-L38)), type aliases that are
+([PlcValue.py:22-38](../dds/gen/PlcValue.py#L22-L38)), type aliases that are
 plain builtins (`PLC.Hostname_t = str`,
-[:42](../scada_web/gen/PlcValue.py#L42)), and **topic-name string constants**
+[:42](../dds/gen/PlcValue.py#L42)), and **topic-name string constants**
 (`PLC.MetaDataTopic = "PLC::MetaDataTopic"`,
-[:100](../scada_web/gen/PlcValue.py#L100),
-[:139](../scada_web/gen/PlcValue.py#L139)).
+[:100](../dds/gen/PlcValue.py#L100),
+[:139](../dds/gen/PlcValue.py#L139)).
 
 That last one is the live hazard. [config.py:154](../scada_web/config.py#L154)
 defaults `type_name` to the *topic* name when `type:` is omitted, so a config
@@ -1707,7 +1707,7 @@ Work done against this review, newest last. Branch
 | `9f0cf64` | [CR-037](#cr-037) symptom | Band observation window derived from `publish_period_s`. Applies [CR-031](#cr-031)'s pattern, but not at CR-031's sites. |
 | `2dbaecf` | [CR-019](#cr-019), [CR-020](#cr-020), [CR-025](#cr-025) RESOLVED; [CR-011](#cr-011) (closes [CR-004](#cr-004)) RESOLVED; [CR-021](#cr-021), [CR-013](#cr-013), [CR-026](#cr-026) RESOLVED; [CR-029](#cr-029) (+[CR-036](#cr-036)), [CR-030](#cr-030), [CR-031](#cr-031) RESOLVED | Dead-code sweep across `config.py`/`gateway.py`/sim/tests; `InterestManager` refactored to `on_add`/`on_delete`/`on_period` callbacks (drops `_last_period_ms`); payload hoisted and exact-type dispatch in `server.py`; catch-all 404 route added; `TestE2ETopicType` deleted, assert-silencing `except` clauses narrowed, guarded assertions converted to hard asserts. |
 | `1a9ea5d` | [CR-003](#cr-003) RESOLVED | Wired SR-003: `DdsGateway` attaches a `DataWriterListener` to every writer and exposes `on_publication_matched`; `server.py`'s new `_on_publication_matched` replays PERIOD + `reconcile()`'s ADD burst on the `ValueRequest` writer's 0→N match transition; `tests/test_reconcile.py` added. |
-| `pending` | [CR-007](#cr-007) RESOLVED (recorded as [DD-054](design-decisions.md#dd-054)) | `sim/plc_publisher.py` / `sim/plc_test_subscriber.py` / `tests/test_scada_select.py` / `tests/test_sim.py` converted from hand-built `DynamicData` types to the same `dds/gen/PlcValue.py` generated types scada-web uses (relocated from `scada_web/gen/` to `dds/gen/` the same day so every component, including the C++ selector's own generated types, shares one `dds/` root); `sim/plc_types.py` deleted. Landed out of the sequence's prescribed order — [CR-006](#cr-006)'s drift guard was not built first, so [CR-006](#cr-006)'s `Status` line records the now-unreplaced cross-check as an explicit open risk, and the literal byte-diff guard the rev 2 correction proposed there was found not to work in this environment (see that finding for the evidence). |
+| `0667c03` | [CR-007](#cr-007) RESOLVED (recorded as [DD-054](design-decisions.md#dd-054)) | `sim/plc_publisher.py` / `sim/plc_test_subscriber.py` / `tests/test_scada_select.py` / `tests/test_sim.py` converted from hand-built `DynamicData` types to the same `dds/gen/PlcValue.py` generated types scada-web uses (relocated from `scada_web/gen/` to `dds/gen/` the same day so every component, including the C++ selector's own generated types, shares one `dds/` root); `sim/plc_types.py` deleted. Landed out of the sequence's prescribed order — [CR-006](#cr-006)'s drift guard was not built first, so [CR-006](#cr-006)'s `Status` line records the now-unreplaced cross-check as an explicit open risk, and the literal byte-diff guard the rev 2 correction proposed there was found not to work in this environment (see that finding for the evidence). |
 
 Deliberately **not** touched, despite being adjacent to the above: the
 `basicConfig` duplication ([CR-002](#cr-002)) and the `.bat` script duplication
@@ -1789,7 +1789,7 @@ below as strikethrough where it differed.
    the vocabulary, then collapse the alias surface.
 9. ~~**[CR-006](#cr-006)** then **[CR-007](#cr-007)** — drift guard as a pytest test,
    *then* the sim convergence it makes safe. Record CR-007 as a new DD.~~
-   **[CR-007](#cr-007) DONE** `pending` (recorded as
+   **[CR-007](#cr-007) DONE** `0667c03` (recorded as
    [DD-054](design-decisions.md#dd-054)); **[CR-006](#cr-006) still OPEN** — done
    out of the prescribed order. The drift guard did not land first, so the
    cross-check CR-007 gave up is currently unreplaced. See both findings'
@@ -1833,7 +1833,7 @@ and *severity*, not disputed evidence — except the two noted.
   [`sim/plc_publisher.py`](../sim/plc_publisher.py),
   [`UI/index.html`](../UI/index.html), [`main.cxx`](../scada_select/src/main.cxx),
   [`MetaDataPlane.cxx`](../scada_select/src/MetaDataPlane.cxx),
-  [`gen/PlcValue.py`](../scada_web/gen/PlcValue.py),
+  [`gen/PlcValue.py`](../dds/gen/PlcValue.py),
   [`dds/qos/profiles.xml`](../dds/qos/profiles.xml).
 - **Two rev 1 claims corrected on evidence.** `TopicConfig.filter` is *not* "plumbed
   to the gateway" — `_create_readers` never reads it ([CR-019](#cr-019)). And the

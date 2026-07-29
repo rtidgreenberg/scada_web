@@ -16,7 +16,7 @@ Level 0/1 (sim/)       Level 2 (scada-selector)      Level 2 (scada_web/)      B
 ┌──────────────────┐   ┌────────────────────────┐    ┌──────────────────┐    ┌──────────┐
 │ field_simulation │   │ field dp  →  web dp    │    │ generated types  │    │ HMI      │
 │ plc_publisher    │──▶│ SelectedValue/MetaData │───▶│ views.py/server  │───▶│ trends   │
-│ plc_types        │   │ ValueRequest ◀─────────│◀───│ interest.py      │◀──│ alarms   │
+│ (dds/gen types)  │   │ ValueRequest ◀─────────│◀───│ interest.py      │◀──│ alarms   │
 └──────────────────┘   └────────────────────────┘    └──────────────────┘    └──────────┘
 ```
 
@@ -37,10 +37,12 @@ scada_web/
 ├── config.yaml       Pre-selector PoC configuration; target topology uses selected topics
 ├── gateway.py        DDS entity lifecycle (participants, readers)
 ├── interest.py       Per-client uid refcounting
-├── mapping.py        [DEPRECATED] DynamicData char-array / union patching
 ├── views.py          View dataclasses + field mapping from generated types
-├── server.py         FastAPI REST + WebSocket surface
-└── gen/              Python generated types (rtiddsgen output, committed)
+└── server.py         FastAPI REST + WebSocket surface
+
+dds/gen/              Python generated types (rtiddsgen output, committed).
+                      Shared by scada_web, sim, and tests (DD-052/DD-054) so
+                      every Python component imports the same PLC module.
 ```
 
 ### 2.1 Dependency Flow (acyclic)
@@ -73,7 +75,7 @@ The gateway uses **Python generated types** produced by `rtiddsgen`, not
 DynamicData. The types are generated once from the canonical IDL source:
 
 ```bash
-rtiddsgen -language python -d scada_web/gen/ dds/idl/PlcValue.idl
+rtiddsgen -language python -d dds/gen/ dds/idl/PlcValue.idl
 ```
 
 The generated output is committed to the repository — types are static SCADA
@@ -319,8 +321,9 @@ Both share YAML-driven topology declaration.
 
 ## 9. Future Work
 
-- **Remove `mapping.py`**: the DynamicData char-array / union patching is
-  superseded by generated types + view classmethods (DD-052, DD-053).
+- ~~**Remove `mapping.py`**: the DynamicData char-array / union patching is
+  superseded by generated types + view classmethods (DD-052, DD-053).~~ **DONE** —
+  `mapping.py` is deleted; `views.py` classmethods do the mapping (DD-053).
 - **ValueRequest writer**: back-channel to scada-selector for interest management.
 - **Historian hook**: periodic snapshot recording independent of live scan rate.
 - **Alarm state machine** (ISA-18.2): Normal → Unack → Ack → RTN, with

@@ -255,8 +255,9 @@ const rowsEl = el("rows");
 const expanded = new Set();
 function agoText(ts) {
   if (!ts) return "—";
-  const s = Math.max(0, (Date.now() - ts) / 1000);
-  if (s < 1) return "just now";
+  const ms = Math.max(0, Date.now() - ts);
+  if (ms < 1000) return ms.toFixed(0) + "ms ago";
+  const s = ms / 1000;
   if (s < 60) return s.toFixed(0) + "s ago";
   return (s / 60).toFixed(0) + "m ago";
 }
@@ -320,7 +321,7 @@ rowsEl.addEventListener("click", e => {
   if (expanded.has(uid)) expanded.delete(uid); else expanded.add(uid);
   render();
 });
-setInterval(() => { document.querySelectorAll(".ago").forEach(x => { x.textContent = agoText(Number(x.dataset.ts)); }); }, 1000);
+setInterval(() => { document.querySelectorAll(".ago").forEach(x => { x.textContent = agoText(Number(x.dataset.ts)); }); }, 100);
 
 // ─── Metadata catalog (REST poll) ───────────────────────────────────────────
 async function pollMetadataCatalog() {
